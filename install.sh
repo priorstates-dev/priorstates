@@ -41,7 +41,9 @@ if command -v pipx >/dev/null 2>&1; then
   [ "$EXTRAS" = 1 ] && pipx inject priorstates onnxruntime tokenizers mcp pyyaml pandas jupyter_client ipykernel || true
 else
   echo "    (pipx not found; using pip --user)"
-  "$PY" -m pip install --user --upgrade --force-reinstall "$SPEC"
+  # --no-cache-dir: the version is static (0.1.0), so pip would otherwise reuse a
+  # stale cached wheel from a previous commit and "update" to old code.
+  "$PY" -m pip install --user --upgrade --force-reinstall --no-cache-dir "$SPEC"
 fi
 
 # Verify the build actually produced the priorstates package (not UNKNOWN).

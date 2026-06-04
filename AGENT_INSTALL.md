@@ -32,12 +32,18 @@ Windows.
 Linux / macOS:
 ```bash
 python3 -m pip install --user --upgrade pip setuptools wheel
-python3 -m pip install --user "priorstates @ git+https://github.com/zqin2012/priorstates.git"
+python3 -m pip install --user --no-cache-dir "priorstates @ git+https://github.com/zqin2012/priorstates.git"
 ```
 Windows (PowerShell):
 ```powershell
 py -m pip install --user --upgrade pip setuptools wheel
-py -m pip install --user "priorstates @ git+https://github.com/zqin2012/priorstates.git"
+py -m pip install --user --no-cache-dir "priorstates @ git+https://github.com/zqin2012/priorstates.git"
+```
+`--no-cache-dir` matters: the package version is static (`0.1.0`), so without it
+pip can reuse a **stale cached wheel** from an earlier commit and silently install
+old code. To **update** an existing install, add `--force-reinstall`:
+```bash
+python3 -m pip install --user --no-cache-dir --force-reinstall "priorstates @ git+https://github.com/zqin2012/priorstates.git"
 ```
 Then continue to **Step 2**.
 
