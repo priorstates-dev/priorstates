@@ -333,9 +333,16 @@ def cmd_cockpit(args):
     if getattr(args, "allow_write", False):
         env["PS_ALLOW_WRITE"] = "1"
         print("  writes + mdlab run: enabled (code runs on THIS host)")
-    if getattr(args, "terminal", False):
+    # Embedded terminal: ON BY DEFAULT for a local (loopback) cockpit; opt out with
+    # --no-terminal. NOT auto-enabled on a non-loopback --host (that would expose a
+    # shell to the network) — pass --terminal to force it there, at your own risk.
+    _loopback = args.host in ("127.0.0.1", "localhost", "::1")
+    if args.terminal or (_loopback and not getattr(args, "no_terminal", False)):
         env["PS_ALLOW_TERMINAL"] = "1"
-        print("  terminal: enabled (a shell in the browser, on THIS host)")
+        if _loopback:
+            print("  terminal: enabled (a shell in the browser; --no-terminal to disable)")
+        else:
+            print("  terminal: ENABLED on a non-loopback host — this exposes a shell to the network!")
     import shutil
     node = shutil.which("node") or shutil.which("node.exe")
     if not node:
@@ -833,7 +840,9 @@ def build_parser():
     pc.add_argument("--port", type=int, default=7700); pc.add_argument("--host", default="127.0.0.1")
     pc.add_argument("--project", help="project root to show (default: auto-detect from cwd)")
     pc.add_argument("--terminal", action="store_true",
-                    help="enable the embedded terminal (a real shell in the browser, on this host)")
+                    help="force-enable the embedded terminal (on by default for local/loopback; use this for a non-loopback --host, at your own risk)")
+    pc.add_argument("--no-terminal", action="store_true",
+                    help="disable the embedded terminal (it's on by default for a local cockpit)")
     pc.add_argument("--allow-open", action="store_true",
                     help="enable 'Open in editor' buttons (launches VSCode/Antigravity/… on the host)")
     pc.add_argument("--allow-write", action="store_true",
