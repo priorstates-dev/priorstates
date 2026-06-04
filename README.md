@@ -109,7 +109,7 @@ Issues and PRs welcome.
 
 ## Get in touch
 
-Questions, ideas, or feedback — **[hello@priorstates.com](mailto:hello@priorstates.com)**.
+Questions, ideas, or feedback — **[service@priorstates.com](mailto:service@priorstates.com)**.
 Bug reports and feature requests are welcome as GitHub issues.
 
 ## License
