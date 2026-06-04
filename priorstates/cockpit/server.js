@@ -289,6 +289,51 @@ function apiCapture(res, kind, text) {
       : sendJson(res, { ok: true, result: String(stdout).trim() }));
 }
 
+// Read a raw (binary) request body, capped — for uploading a .psworkspace.
+function readRawBody(req, cb) {
+  const chunks = []; let n = 0;
+  req.on('data', (d) => { n += d.length; if (n > 6e6) { req.destroy(); return; } chunks.push(d); });
+  req.on('end', () => cb(Buffer.concat(chunks)));
+}
+
+// Export this workspace → a .psworkspace download (read-only; no key needed).
+function apiExport(res) {
+  const tmp = path.join(os.tmpdir(), 'ps-export-' + process.pid + '-' + Math.abs(Date.now()) + '.psworkspace');
+  cp.execFile(PS_PYTHON, ['-m', 'priorstates', 'workspace', 'export', '--out', tmp],
+    { cwd: PROJECT_ROOT || HOME, timeout: 60000, maxBuffer: 1 << 22 },
+    (err) => {
+      if (err) return send(res, 500, JSON.stringify({ error: String(err.message).slice(0, 2000) }));
+      let buf; try { buf = fs.readFileSync(tmp); } catch (_) { return send(res, 500, JSON.stringify({ error: 'export produced no file' })); }
+      try { fs.unlinkSync(tmp); } catch (_) {}
+      const name = (PROJECT_ROOT ? path.basename(PROJECT_ROOT) : 'workspace') + '.psworkspace';
+      res.writeHead(200, { 'Content-Type': 'application/gzip',
+        'Content-Disposition': 'attachment; filename="' + name + '"', 'Content-Length': buf.length });
+      res.end(buf);
+    });
+}
+
+// Import a .psworkspace: from `?url=` or from the raw uploaded body. Opt-in via --allow-write.
+function apiImport(res, urlArg, bodyBuf) {
+  if (!ALLOW_WRITE) return send(res, 403, JSON.stringify({ error: 'writes disabled — start the cockpit with --allow-write' }));
+  const run = (src, cleanup) => cp.execFile(PS_PYTHON, ['-m', 'priorstates', 'workspace', 'import', src, '--yes'],
+    { cwd: PROJECT_ROOT || HOME, timeout: 120000, maxBuffer: 1 << 22 },
+    (err, stdout, stderr) => {
+      if (cleanup) cleanup();
+      if (err) return send(res, 500, JSON.stringify({ error: String(stderr || err.message).slice(0, 2000) }));
+      sendJson(res, { ok: true, result: String(stdout).trim() });
+    });
+  if (urlArg) {
+    if (!/^https?:\/\//.test(urlArg)) return send(res, 400, JSON.stringify({ error: 'url must be http(s)' }));
+    return run(urlArg, null);
+  }
+  if (!bodyBuf || bodyBuf.length < 2 || bodyBuf[0] !== 0x1f || bodyBuf[1] !== 0x8b) {
+    return send(res, 400, JSON.stringify({ error: 'not a .psworkspace (gzip) upload' }));
+  }
+  const tmp = path.join(os.tmpdir(), 'ps-import-' + process.pid + '-' + Math.abs(Date.now()) + '.psworkspace');
+  fs.writeFileSync(tmp, bodyBuf);
+  run(tmp, () => { try { fs.unlinkSync(tmp); } catch (_) {} });
+}
+
 // Import the bundled demo workspace (for the cockpit's first-run empty state).
 function apiImportDemo(res) {
   if (!ALLOW_WRITE) return send(res, 403, JSON.stringify({ error: 'writes disabled — start the cockpit with --allow-write' }));
@@ -341,6 +386,10 @@ const server = http.createServer((req, res) => {
       if (p === '/api/memory/pin') return readBody(req, (b) => apiMemOp(res, 'pin', b.name, b.unpin));
       if (p === '/api/memory/delete') return readBody(req, (b) => apiMemOp(res, 'delete', b.name));
       if (p === '/api/workspace/import-demo') return readBody(req, () => apiImportDemo(res));
+      if (p === '/api/workspace/import') {
+        if (u.query.url) return apiImport(res, u.query.url, null);
+        return readRawBody(req, (buf) => apiImport(res, null, buf));
+      }
       return send(res, 404, 'not found', 'text/plain');
     }
     if (p === '/') return serveStatic(res, 'index.html');
@@ -353,6 +402,7 @@ const server = http.createServer((req, res) => {
     if (p === '/api/file') return apiFile(res, u.query.path);
     if (p === '/api/open') return apiOpen(res, u.query.app, u.query.path);
     if (p === '/api/mdlab/run') return apiMdlabRun(res, u.query.path);
+    if (p === '/api/workspace/export') return apiExport(res);
     if (/^\/[\w.-]+$/.test(p)) return serveStatic(res, p.slice(1));
     return send(res, 404, 'not found', 'text/plain');
   } catch (e) { return send(res, 500, JSON.stringify({ error: String(e && e.message || e) })); }

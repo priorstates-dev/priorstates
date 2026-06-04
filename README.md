@@ -101,7 +101,8 @@ priorstates workspace import ./my-project.psworkspace # on the other machine (or
 
 Imported memory surfaces through the same MCP tools — no extra wiring. Imports are
 **checksum-verified, shown for confirmation before ingest, and tagged with their
-source** (and never auto-pinned).
+source** (and never auto-pinned). The **cockpit** has **Export** / **Import**
+buttons too (Import needs the cockpit started with `--allow-write`).
 
 **New here?** Load a ready-made sample to see PriorStates populated instantly:
 

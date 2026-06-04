@@ -161,6 +161,27 @@ function bind() {
     render();
   };
   $('#search').oninput = render;
+  // Export / Import a workspace bundle.
+  const ex = $('#export');
+  if (ex) ex.onclick = () => { window.location.href = '/api/workspace/export'; };
+  const im = $('#import'), imf = $('#importfile');
+  if (im && imf && (state.meta || {}).allow_write) {
+    im.hidden = false;
+    im.onclick = () => imf.click();
+    imf.onchange = async () => {
+      const f = imf.files && imf.files[0]; if (!f) return;
+      im.disabled = true; const was = im.textContent; im.textContent = 'importing…';
+      let r;
+      try {
+        const buf = await f.arrayBuffer();
+        r = await fetch('/api/workspace/import', { method: 'POST',
+          headers: { 'Content-Type': 'application/gzip' }, body: buf }).then((x) => x.json());
+      } catch (e) { r = { error: String(e) }; }
+      imf.value = ''; im.disabled = false; im.textContent = was;
+      if (r && r.error) { alert('Import failed: ' + r.error); return; }
+      alert((r && r.result) || 'Imported.'); await reload();
+    };
+  }
   window.addEventListener('popstate', (e) => {
     if (e.state && typeof e.state.seq === 'number') { nav.seq = e.state.seq; renderLoc(e.state); }
     else { nav.seq = -1; placeholder(); }
