@@ -20,6 +20,65 @@ BG, BG2, BG3 = "#0d1117", "#161b22", "#1c2230"
 FG, DIM, BORDER = "#c9d1d9", "#8b949e", "#30363d"
 ACCENT, ACCENT_HOVER, ACCENT_FG = "#1f6feb", "#388bfd", "#ffffff"
 HOVER = "#222b3a"
+GREEN, ORANGE = "#3fb950", "#e3934d"
+
+# A copy-paste prompt that makes an agent demonstrate PriorStates live.
+STARTER_PROMPT = (
+    "Use PriorStates: save a pinned 'preference' memory that I prefer "
+    "hypothesis-driven parameter tuning over grid search. Then search your "
+    "PriorStates memory to confirm you can recall it, and tell me what you found."
+)
+
+# Clearly-labelled sample content so a fresh install isn't an empty screen.
+# Names/topics are prefixed so "Remove examples" can find and delete them.
+_EX_PREFIX = "example-"
+EXAMPLE_MEMORIES = [
+    dict(name="example-prefer-hypothesis-tuning", type_str="preference", pinned=True,
+         description="Tune from theory + data, not a grid search",
+         body="When tuning parameters, start from a hypothesis grounded in theory and "
+              "data rather than sweeping a blind grid.\n\n(Example memory — safe to delete.)"),
+    dict(name="example-project-uses-pytest", type_str="project", pinned=False,
+         description="This project's tests run under pytest",
+         body="Run the test suite with `pytest -q`.\n\n(Example memory — safe to delete.)"),
+    dict(name="example-logs-are-utc", type_str="note", pinned=False,
+         description="Service log timestamps are UTC",
+         body="All service logs are emitted in UTC.\n\n(Example memory — safe to delete.)"),
+]
+EXAMPLE_JOURNAL = [
+    dict(topic="example-onboarding", outcome="winner", title="PriorStates demo worked",
+         body="Installed PriorStates, wired the agent over MCP, and recalled a memory in a "
+              "fresh session.\n\n(Example journal entry — safe to delete.)"),
+    dict(topic="example-onboarding", outcome="loser", title="Blind grid search was too noisy",
+         body="A blind parameter grid produced noise-dominated winners; hypothesis-driven "
+              "tuning did better.\n\n(Example journal entry — safe to delete.)"),
+]
+
+
+class _Tip:
+    """Minimal hover tooltip for a Tk widget (stdlib only)."""
+
+    def __init__(self, widget, text):
+        self.widget, self.text, self.tip = widget, text, None
+        widget.bind("<Enter>", self._show, add="+")
+        widget.bind("<Leave>", self._hide, add="+")
+        widget.bind("<ButtonPress>", self._hide, add="+")
+
+    def _show(self, _=None):
+        import tkinter as tk
+        if self.tip or not self.text:
+            return
+        x = self.widget.winfo_rootx() + 14
+        y = self.widget.winfo_rooty() + self.widget.winfo_height() + 6
+        self.tip = tk.Toplevel(self.widget)
+        self.tip.wm_overrideredirect(True)
+        self.tip.wm_geometry("+%d+%d" % (x, y))
+        tk.Label(self.tip, text=self.text, justify="left", bg=BG3, fg=FG,
+                 relief="solid", borderwidth=1, padx=8, pady=5, wraplength=320).pack()
+
+    def _hide(self, _=None):
+        if self.tip:
+            self.tip.destroy()
+            self.tip = None
 
 
 def _load(start=None):
@@ -106,6 +165,7 @@ class PriorStatesGUI:
         self._launchbar = ttk.Frame(mainf, style="Launch.TFrame")
         self._launchbar.pack(fill="x", side="top", padx=12, pady=(8, 0))
         self._nb = ttk.Notebook(mainf)
+        self._tabs = {}
         self._tab_dashboard(self._nb)
         self._tab_memory(self._nb)
         self._tab_journal(self._nb)
@@ -279,10 +339,14 @@ class PriorStatesGUI:
                 return False
             ttk.Label(bar, text=header, style="LaunchHdr.TLabel").pack(side="left", padx=(2, 8))
             for key, label, _b, _kind, wa in shown:
-                txt = label + " ⚠" if (wa and wired is not None and key not in wired) else label
-                ttk.Button(bar, text=txt, style="Agent.TButton",
-                           command=lambda k=key: self._launch_target(self.workspace, k)).pack(
-                    side="left", padx=3)
+                unwired = wa and wired is not None and key not in wired
+                txt = label + " ⚠" if unwired else label
+                b = ttk.Button(bar, text=txt, style="Agent.TButton",
+                               command=lambda k=key: self._launch_target(self.workspace, k))
+                b.pack(side="left", padx=3)
+                self._tip(b, ("⚠ PriorStates isn't wired into %s yet — click Install on the "
+                              "Agents tab so it sees the memory + journal tools." % label)
+                          if unwired else "Open %s in this workspace." % label)
             return True
 
         any_agent = add_group("LAUNCH AGENT", [t for t in targets if t[4]])
@@ -844,33 +908,134 @@ class PriorStatesGUI:
 
     # ----- dashboard --------------------------------------------------- #
     def _tab_dashboard(self, nb):
-        ttk = self.ttk
+        tk, ttk = self.tk, self.ttk
         f = ttk.Frame(nb)
-        nb.add(f, text="Dashboard")
-        self.dash_text = self.tk.Text(f, height=12, wrap="word", relief="flat")
-        self.dash_text.pack(fill="both", expand=True, padx=10, pady=10)
-        btns = ttk.Frame(f)
-        btns.pack(fill="x", padx=10, pady=(0, 10))
-        ttk.Button(btns, text="Open Cockpit (local)", command=self.open_cockpit, style="Accent.TButton").pack(side="left")
-        # Toggle the cockpit's "Open in editor" buttons (--allow-open).
-        self.allow_open = self.tk.BooleanVar(value=False)
-        ttk.Checkbutton(btns, text="Open-in-editor buttons", variable=self.allow_open).pack(side="left", padx=6)
-        ttk.Button(btns, text="Reindex memory", command=self.reindex).pack(side="left", padx=6)
-        ttk.Button(btns, text="Download model", command=self.download_model).pack(side="left")
-        ttk.Button(btns, text="Refresh", command=self.refresh_all).pack(side="left", padx=6)
+        nb.add(f, text="Get started")
+        self._tabs["dashboard"] = f
+
+        head = ttk.Frame(f); head.pack(fill="x", padx=16, pady=(16, 6))
+        tk.Label(head, text="Welcome to PriorStates", bg=BG, fg=FG,
+                 font=(self._fam(), 17, "bold")).pack(anchor="w")
+        tk.Label(head, text=("Your agents now share one local memory + research journal. "
+                             "Work through these steps to start using it — each has a button."),
+                 bg=BG, fg=DIM, wraplength=860, justify="left").pack(anchor="w", pady=(4, 0))
+
+        # Checklist (rebuilt by _render_dashboard on every refresh).
+        self._dash_check = ttk.Frame(f); self._dash_check.pack(fill="x", padx=16, pady=8)
+
+        # Quick links row.
+        links = ttk.Frame(f); links.pack(fill="x", padx=16, pady=(2, 6))
+        self.allow_open = tk.BooleanVar(value=False)   # cockpit --allow-open toggle
+        cb = ttk.Checkbutton(links, text="Cockpit: open-in-editor buttons", variable=self.allow_open)
+        cb.pack(side="left")
+        self._tip(cb, "When on, the web cockpit shows buttons that open files in your editor.")
+        db = ttk.Button(links, text="Docs", command=self.open_docs); db.pack(side="left", padx=6)
+        self._tip(db, "Open the PriorStates documentation in your browser.")
+        rb = ttk.Button(links, text="Refresh", command=self.refresh_all); rb.pack(side="left")
+        self._tip(rb, "Re-check status (agents wired, memory count, model).")
+
+        # Collapsible system-status (the old diagnostic readout), hidden by default.
+        self._status_open = tk.BooleanVar(value=False)
+        self._status_toggle = ttk.Button(f, text="▸ System status", style="Ws.TButton",
+                                          command=self._toggle_status)
+        self._status_toggle.pack(fill="x", padx=16, pady=(8, 0))
+        self.dash_text = tk.Text(f, height=9, wrap="word", relief="flat",
+                                 bg=BG2, fg=DIM, insertbackground=FG, borderwidth=0)
+        # not packed → hidden until toggled
+
+    def _toggle_status(self):
+        if self._status_open.get():
+            self.dash_text.pack_forget()
+            self._status_toggle.config(text="▸ System status")
+            self._status_open.set(False)
+        else:
+            self.dash_text.pack(fill="both", expand=True, padx=16, pady=(2, 12))
+            self._status_toggle.config(text="▾ System status")
+            self._status_open.set(True)
+
+    def _dashboard_items(self):
+        """Checklist rows from current state. kind: 'check' (done/next marker)
+        or 'do' (neutral action)."""
+        wired = bool(self._wired_agents())
+        memn = self._memory_count()
+        semantic = getattr(self, "_emb_backend", "hashing") != "hashing"
+        ex = self._examples_present()
+        items = [
+            dict(kind="check", done=wired,
+                 title="Wire your agents to PriorStates",
+                 hint=("Claude / Codex / Gemini can see PriorStates' tools over MCP."
+                       if wired else "No agent is wired yet — click to register the MCP server."),
+                 btn=("Open Agents" if wired else "Wire agents"),
+                 fn=(lambda: self.goto_tab("agents")) if wired else self.agents_install),
+            dict(kind="check", done=memn > 0,
+                 title="Add your first memory",
+                 hint=(f"{memn} memor%s stored." % ("y" if memn == 1 else "ies")
+                       if memn else "A memory is a fact agents recall across sessions."),
+                 btn="Add a memory", fn=lambda: self.goto_tab("memory", focus=True)),
+            dict(kind="do",
+                 title="Try it live with an agent",
+                 hint="Copies a starter prompt and opens an agent so you can watch it remember.",
+                 btn="Try with agent", fn=self.try_with_agent),
+            dict(kind="do",
+                 title="Open the cockpit",
+                 hint="A local web view that maps your memory, journal and docs.",
+                 btn="Open cockpit", fn=self.open_cockpit),
+            dict(kind="check", done=semantic,
+                 title="Upgrade to semantic recall (optional)",
+                 hint=("Semantic embedding model active." if semantic
+                       else "Using the built-in hashing embedder; download the model for meaning-based recall (~127 MB)."),
+                 btn=("Model ready" if semantic else "Download model"),
+                 fn=(None if semantic else self.download_model)),
+            dict(kind="do",
+                 title=("Remove the example data" if ex else "Load example memories + journal"),
+                 hint=("Examples are loaded — delete them when you're ready." if ex
+                       else "See what a populated PriorStates looks like (clearly marked, one-click delete)."),
+                 btn=("Remove examples" if ex else "Load examples"),
+                 fn=(self.remove_examples if ex else self.load_examples)),
+        ]
+        return items
+
+    def _render_dashboard(self):
+        tk, ttk = self.tk, self.ttk
+        box = getattr(self, "_dash_check", None)
+        if box is None:
+            return
+        for c in box.winfo_children():
+            c.destroy()
+        for it in self._dashboard_items():
+            row = ttk.Frame(box); row.pack(fill="x", pady=5)
+            if it["kind"] == "check":
+                mark, color = ("✓", GREEN) if it.get("done") else ("→", ACCENT_HOVER)
+            else:
+                mark, color = ("•", DIM)
+            tk.Label(row, text=mark, bg=BG, fg=color, font=(self._fam(), 14, "bold"),
+                     width=2).pack(side="left", anchor="n")
+            txt = ttk.Frame(row); txt.pack(side="left", fill="x", expand=True)
+            tk.Label(txt, text=it["title"], bg=BG, fg=FG,
+                     font=(self._fam(), 11, "bold")).pack(anchor="w")
+            if it.get("hint"):
+                tk.Label(txt, text=it["hint"], bg=BG, fg=DIM, wraplength=620,
+                         justify="left").pack(anchor="w")
+            fn = it.get("fn")
+            btn = ttk.Button(row, text=it["btn"], command=(fn or (lambda: None)),
+                             style="Accent.TButton" if (it["kind"] == "check" and not it.get("done")) else "Agent.TButton")
+            if fn is None:
+                btn.state(["disabled"])
+            btn.pack(side="right", anchor="n")
 
     def refresh_all(self):
         from ..core.embedder import get_embedder
         from ..agents import status as ag_status
         self.cfg = _load(self._ws_local_path(self.workspace))
         emb = get_embedder(self.cfg)
+        self._emb_backend = getattr(emb, "backend", "?")
         lines = [
             f"home:         {self.cfg.home}",
             f"project root: {self.cfg.project_root or '(none — run init in a project)'}",
             f"journal:      {self.cfg.journal_dir or '(none)'}",
-            f"embedder:     {getattr(emb, 'backend', '?')} (dim={emb.dim})"
-            + ("   ← hashing fallback; click 'Download model' for semantic recall"
-               if getattr(emb, 'backend', '') == 'hashing' else ""),
+            f"embedder:     {self._emb_backend} (dim={emb.dim})"
+            + ("   ← hashing fallback; use 'Download model' for semantic recall"
+               if self._emb_backend == 'hashing' else ""),
             "",
             "agents:",
         ]
@@ -880,24 +1045,146 @@ class PriorStatesGUI:
         self.dash_text.delete("1.0", "end")
         self.dash_text.insert("1.0", "\n".join(lines))
         self.dash_text.config(state="disabled")
+        self._render_dashboard()
         if hasattr(self, "_refresh_mem"):
             self._refresh_mem()
             self._refresh_journal()
             self._refresh_agents()
+
+    # ----- onboarding helpers ------------------------------------------ #
+    def _fam(self):
+        return self._pick_font(["Inter", "Segoe UI", "Helvetica", "DejaVu Sans", "TkDefaultFont"])
+
+    def _tip(self, widget, text):
+        _Tip(widget, text)
+
+    def goto_tab(self, name, focus=False):
+        frame = self._tabs.get(name)
+        if frame is not None:
+            self._nb.select(frame)
+        if focus and name == "memory" and getattr(self, "_mem_name_entry", None) is not None:
+            self._mem_name_entry.focus_set()
+            self.set_status("Type a short name + a fact, then click Add.")
+
+    def open_docs(self):
+        webbrowser.open("https://priorstates.com")
+
+    def _memory_count(self):
+        try:
+            from ..memory.api import _bins_for_scope
+            from ..core.store import MemoryStore
+            total = 0
+            for bp in _bins_for_scope(self.cfg, "all"):
+                with MemoryStore(bp) as st:
+                    total += st.n
+            return total
+        except Exception:
+            return 0
+
+    def _examples_present(self):
+        try:
+            from ..memory import api as mem
+            for m in EXAMPLE_MEMORIES:
+                if mem.get_memory(self.cfg, m["name"]):
+                    return True
+        except Exception:
+            pass
+        return False
+
+    def _first_available_agent(self):
+        """An agent CLI that's present and (preferably) wired, for the live demo."""
+        present = self._present_keys(self.workspace)
+        wired = self._wired_agents()
+        order = ["claude", "codex", "gemini"]
+        for k in order:
+            if k in present and k in wired:
+                return k
+        for k in order:
+            if k in present:
+                return k
+        return None
+
+    def try_with_agent(self):
+        key = self._first_available_agent()
+        if not key:
+            return self.set_status("No agent CLI found on PATH — install claude / codex / gemini first.")
+        try:
+            self.root.clipboard_clear()
+            self.root.clipboard_append(STARTER_PROMPT)
+        except Exception:
+            pass
+        self._launch_cli(self.workspace, {t[0]: t[2] for t in self._launch_targets()}[key])
+        self.set_status(f"Starter prompt copied — paste it into {key.capitalize()} (just opened).")
+
+    def load_examples(self):
+        from ..memory import api as mem
+        from ..core import journal as J
+        added = 0
+        for m in EXAMPLE_MEMORIES:
+            try:
+                mem.add_memory(self.cfg, name=m["name"], type_str=m["type_str"],
+                               description=m["description"], body=m["body"],
+                               pinned=m["pinned"], scope="project", overwrite=True)
+                added += 1
+            except Exception:
+                pass
+        jr = 0
+        if self.cfg.journal_dir:
+            for e in EXAMPLE_JOURNAL:
+                try:
+                    J.add(self.cfg, topic=e["topic"], outcome=e["outcome"],
+                          title=e["title"], body=e["body"])
+                    jr += 1
+                except Exception:
+                    pass
+        note = f"Loaded {added} example memories" + (f" + {jr} journal entries." if jr
+               else " (open a project folder to also seed journal examples).")
+        self.set_status(note)
+        self.refresh_all()
+
+    def remove_examples(self):
+        from ..memory import api as mem
+        from ..core import journal as J
+        for m in EXAMPLE_MEMORIES:
+            try:
+                mem.delete_memory(self.cfg, m["name"])
+            except Exception:
+                pass
+        # Delete example journal entries (topic-prefixed) if any.
+        if self.cfg.journal_dir:
+            try:
+                for e in J.all_entries(self.cfg):
+                    if str(getattr(e, "topic", "")).startswith(_EX_PREFIX):
+                        p = getattr(e, "path", None)
+                        if p and Path(p).exists():
+                            Path(p).unlink()
+                J.regenerate_all(self.cfg)
+            except Exception:
+                pass
+        self.set_status("Removed example data.")
+        self.refresh_all()
 
     # ----- memory ------------------------------------------------------ #
     def _tab_memory(self, nb):
         tk, ttk = self.tk, self.ttk
         f = ttk.Frame(nb)
         nb.add(f, text="Memory")
+        self._tabs["memory"] = f
         top = ttk.Frame(f)
         top.pack(fill="x", padx=10, pady=8)
         self.mem_query = tk.StringVar()
         ttk.Entry(top, textvariable=self.mem_query, width=40).pack(side="left")
         ttk.Button(top, text="Search", command=self.mem_search).pack(side="left", padx=6)
         ttk.Button(top, text="List pinned", command=self._refresh_mem).pack(side="left")
-        self.mem_list = tk.Listbox(f, height=12)
-        self.mem_list.pack(fill="both", expand=True, padx=10)
+        holder = ttk.Frame(f); holder.pack(fill="both", expand=True, padx=10)
+        self.mem_list = tk.Listbox(holder, height=12)
+        self.mem_empty = tk.Label(
+            holder, bg=BG, fg=DIM, justify="left", anchor="nw", wraplength=720,
+            text=("No memories yet.\n\nA memory is a fact your agents recall by meaning across "
+                  "sessions — a preference, a project detail, a decision. Add one below, click "
+                  "“Load examples” on the Get-started tab, or just ask an agent to remember "
+                  "something."))
+        self.mem_list.pack(fill="both", expand=True)
         self.mem_list.bind("<<ListboxSelect>>", self._mem_selected)
 
         form = ttk.LabelFrame(f, text="Add memory")
@@ -908,7 +1195,8 @@ class PriorStatesGUI:
         self.mem_pin = tk.BooleanVar()
         r = ttk.Frame(form); r.pack(fill="x", pady=2)
         ttk.Label(r, text="name").pack(side="left")
-        ttk.Entry(r, textvariable=self.mem_name, width=24).pack(side="left", padx=4)
+        self._mem_name_entry = ttk.Entry(r, textvariable=self.mem_name, width=24)
+        self._mem_name_entry.pack(side="left", padx=4)
         ttk.Label(r, text="type").pack(side="left")
         self.mem_type_cb = ttk.Combobox(r, textvariable=self.mem_type, values=self.cfg.memory_types, width=12)
         self.mem_type_cb.pack(side="left", padx=4)
@@ -939,6 +1227,13 @@ class PriorStatesGUI:
 
     def _fill_mem(self, rows, prefix):
         self.mem_list.delete(0, "end")
+        if not rows:
+            self.mem_list.pack_forget()
+            self.mem_empty.pack(fill="both", expand=True, pady=24)
+            return
+        self.mem_empty.pack_forget()
+        if not self.mem_list.winfo_ismapped():
+            self.mem_list.pack(fill="both", expand=True)
         for r in rows:
             tag = "📌 " if r.get("pinned") else prefix
             self.mem_list.insert("end", f"{tag}{r['name']}  [{r.get('type','')}]  {r.get('description','')}")
@@ -948,7 +1243,7 @@ class PriorStatesGUI:
 
     def _selected_mem_name(self):
         sel = self.mem_list.curselection()
-        if not sel:
+        if not sel or sel[0] >= len(self._mem_rows):
             return None
         return self._mem_rows[sel[0]]["name"]
 
@@ -992,12 +1287,21 @@ class PriorStatesGUI:
         tk, ttk = self.tk, self.ttk
         f = ttk.Frame(nb)
         nb.add(f, text="Journal")
+        self._tabs["journal"] = f
         top = ttk.Frame(f); top.pack(fill="x", padx=10, pady=8)
         self.jr_query = tk.StringVar()
         ttk.Entry(top, textvariable=self.jr_query, width=40).pack(side="left")
         ttk.Button(top, text="Search", command=self._refresh_journal).pack(side="left", padx=6)
-        self.jr_list = tk.Listbox(f, height=14)
-        self.jr_list.pack(fill="both", expand=True, padx=10)
+        jholder = ttk.Frame(f); jholder.pack(fill="both", expand=True, padx=10)
+        self.jr_list = tk.Listbox(jholder, height=14)
+        self.jr_empty = tk.Label(
+            jholder, bg=BG, fg=DIM, justify="left", anchor="nw", wraplength=720,
+            text=("No journal entries yet.\n\nThe journal records what you tried and how it "
+                  "turned out — winner, loser, bug, decision — so experiments aren't silently "
+                  "re-run. Record one below, or click “Load examples” on the Get-started tab.\n\n"
+                  "(The journal lives in a project folder — add one from the left sidebar if you "
+                  "don't see it.)"))
+        self.jr_list.pack(fill="both", expand=True)
 
         form = ttk.LabelFrame(f, text="Add entry")
         form.pack(fill="x", padx=10, pady=8)
@@ -1019,6 +1323,13 @@ class PriorStatesGUI:
         q = self.jr_query.get().strip() or None
         rows = J.search(self.cfg, query=q, k=200) if self.cfg.journal_dir else []
         self.jr_list.delete(0, "end")
+        if not rows:
+            self.jr_list.pack_forget()
+            self.jr_empty.pack(fill="both", expand=True, pady=24)
+            return
+        self.jr_empty.pack_forget()
+        if not self.jr_list.winfo_ismapped():
+            self.jr_list.pack(fill="both", expand=True)
         for r in rows:
             self.jr_list.insert("end", f"{r['date']} [{r['outcome']}] {r['topic']}: {r['title']}")
 
@@ -1041,11 +1352,16 @@ class PriorStatesGUI:
         ttk = self.ttk
         f = ttk.Frame(nb)
         nb.add(f, text="Agents")
+        self._tabs["agents"] = f
         self.agents_text = self.tk.Text(f, height=10, wrap="word", relief="flat")
         self.agents_text.pack(fill="both", expand=True, padx=10, pady=10)
         btns = ttk.Frame(f); btns.pack(fill="x", padx=10, pady=(0, 10))
-        ttk.Button(btns, text="Install (wire enabled agents)", command=self.agents_install, style="Accent.TButton").pack(side="left")
-        ttk.Button(btns, text="Uninstall", command=self.agents_uninstall).pack(side="left", padx=6)
+        bi = ttk.Button(btns, text="Install (wire enabled agents)", command=self.agents_install, style="Accent.TButton")
+        bi.pack(side="left")
+        self._tip(bi, "Register PriorStates' MCP server + pinned context block into your agents\n"
+                      "(Claude / Codex / Gemini), so they can use its memory + journal tools.")
+        bu = ttk.Button(btns, text="Uninstall", command=self.agents_uninstall); bu.pack(side="left", padx=6)
+        self._tip(bu, "Remove PriorStates' MCP server + pinned block from your agents.")
         ttk.Button(btns, text="Refresh", command=self._refresh_agents).pack(side="left")
 
     def _refresh_agents(self):
@@ -1074,11 +1390,14 @@ class PriorStatesGUI:
         tk, ttk = self.tk, self.ttk
         f = ttk.Frame(nb)
         nb.add(f, text="mdlab")
+        self._tabs["mdlab"] = f
         top = ttk.Frame(f); top.pack(fill="x", padx=10, pady=8)
         self.mdlab_path = tk.StringVar()
         ttk.Entry(top, textvariable=self.mdlab_path, width=60).pack(side="left")
         ttk.Button(top, text="Browse", command=self._mdlab_browse).pack(side="left", padx=6)
-        ttk.Button(top, text="Run", command=self._mdlab_run, style="Accent.TButton").pack(side="left")
+        rb = ttk.Button(top, text="Run", command=self._mdlab_run, style="Accent.TButton"); rb.pack(side="left")
+        self._tip(rb, "Run a runnable-Markdown (.md) file: execute its python/bash/journal\n"
+                      "blocks and splice the results back into the document.")
         self.mdlab_out = tk.Text(f, height=18, wrap="word")
         self.mdlab_out.pack(fill="both", expand=True, padx=10, pady=8)
 
