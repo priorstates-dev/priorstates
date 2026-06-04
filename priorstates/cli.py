@@ -200,13 +200,13 @@ def cmd_workspace(args):
                                      name=args.name, author=args.author)
         print(f"exported → {out}")
         print("Share that file; the recipient runs:  priorstates workspace import <file-or-url>")
-    elif args.action == "import":
-        src = share.packaged_demo() if args.demo else args.source
+    elif args.action in ("import", "install"):
+        src = share.packaged_demo() if getattr(args, "demo", False) else args.source
         if not src:
             print("give a .psworkspace file/URL, or --demo", file=sys.stderr); sys.exit(2)
         manifest, _ = share.read_bundle(src)
         print(share.summarize(manifest))
-        assume_yes = args.yes or args.demo  # the bundled demo is trusted
+        assume_yes = args.yes or getattr(args, "demo", False)  # the bundled demo is trusted
         if not assume_yes:
             if not sys.stdin.isatty():
                 print("refusing to import non-interactively without --yes "
@@ -223,6 +223,43 @@ def cmd_workspace(args):
             msg += "  (journal skipped — run `priorstates init` in a project to import it)"
         print(msg)
         print("Your agents can recall the new memories now (restart the agent if it caches tools).")
+    elif args.action == "publish":
+        import json
+        import os
+        import tempfile
+        import urllib.error
+        import urllib.request
+        hub = (args.hub or os.environ.get("PRIORSTATES_HUB") or "https://priorstates.com/w").rstrip("/")
+        key = os.environ.get("PRIORSTATES_HUB_KEY", "")
+        fd, tmp = tempfile.mkstemp(suffix=".psworkspace"); os.close(fd)
+        try:
+            share.export_workspace(cfg, scope=args.scope, out_path=tmp, name=args.name, author=args.author)
+            data = open(tmp, "rb").read()
+        finally:
+            try: os.unlink(tmp)
+            except OSError: pass
+        req = urllib.request.Request(hub, data=data, method="POST",
+                                     headers={"Content-Type": "application/octet-stream"})
+        if key:
+            req.add_header("X-PriorStates-Key", key)
+        try:
+            with urllib.request.urlopen(req, timeout=60) as r:
+                res = json.loads(r.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            print(f"publish failed ({e.code}): {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+            if e.code == 403:
+                print("This hub requires a key — set PRIORSTATES_HUB_KEY.", file=sys.stderr)
+            sys.exit(1)
+        pubf = cfg.home / "published.json"
+        try:
+            reg = json.loads(pubf.read_text()) if pubf.exists() else {}
+        except Exception:
+            reg = {}
+        reg[res["id"]] = {"url": res["url"], "token": res["token"], "name": args.name or ""}
+        pubf.write_text(json.dumps(reg, indent=2))
+        print(f"published → {res['url']}")
+        print(f"install:    priorstates workspace install {res['url']}")
+        print(f"(edit token saved to {pubf} — keep it to delete the bundle later)")
 
 
 # --------------------------------------------------------------------------- #
@@ -755,6 +792,13 @@ def build_parser():
     wi.add_argument("source", nargs="?", help="path or http(s) URL to a .psworkspace")
     wi.add_argument("--demo", action="store_true", help="import the bundled demo workspace")
     wi.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    wl = pws.add_parser("install", help="install a workspace from a URL (alias for import)")
+    wl.add_argument("source", help="http(s) URL (or path) to a .psworkspace")
+    wl.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    wpub = pws.add_parser("publish", help="export + upload to the hub; prints a shareable link")
+    wpub.add_argument("--scope", default="project", choices=["project", "global", "user", "all"])
+    wpub.add_argument("--name"); wpub.add_argument("--author")
+    wpub.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
     pw.set_defaults(func=cmd_workspace)
 
     pl = sub.add_parser("mdlab", help="run runnable-Markdown files")
