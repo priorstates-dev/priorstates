@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """PTY bridge for the cockpit's embedded terminal — stdlib only.
 
-The Node cockpit spawns this and pipes to it. It runs argv[1:] (or $SHELL) inside
-a real pseudo-terminal and relays:
-  • pty output      → this process's stdout   (Node forwards to the browser via SSE)
-  • framed control  ← this process's stdin     (Node writes input/resize here)
+The cockpit server spawns this and pipes to it. It runs argv[1:] (or $SHELL)
+inside a real pseudo-terminal and relays:
+  • pty output      → this process's stdout   (cockpit forwards to the browser via SSE)
+  • framed control  ← this process's stdin     (cockpit writes input/resize here)
 
 Control frames on stdin:  [4-byte big-endian length][1 type byte][payload]
   type b'i'  input bytes      → written to the pty

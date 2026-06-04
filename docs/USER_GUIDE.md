@@ -317,7 +317,7 @@ Press **▶ Run** on an `.mdlab.md` doc to execute its blocks on the server.
 **Auto-bootstrap (like VSCode Remote-SSH).** If PriorStates isn't on the server,
 `connect` **ships it there automatically** (to `~/.priorstates-app/`) and runs from
 that copy — you don't have to install it on each host. The server only needs
-`python3`, `numpy` (auto-installed if missing), and `node` (for the cockpit),
+`python3` and `numpy` (auto-installed if missing) -- the cockpit is pure Python too,
 plus SSH access. `--install` re-ships an updated copy. SSH auth (password /
 passphrase / host-key) is handled in the terminal window the GUI opens.
 
@@ -418,7 +418,7 @@ a remote is configured under `[backup]` in `config.toml`.
   ran `priorstates init` in.
 - **GUI won't open** — install Tk (`sudo apt install python3-tk`; on macOS
   `brew install python-tk` or use python.org's Python).
-- **Cockpit won't start** — needs Node.js (`sudo apt install nodejs`).
+- **Cockpit won't start** — it's pure Python; check the terminal output for the error.
 
 Uninstall: `priorstates agents uninstall`, then remove the package
 (`sudo apt remove priorstates` / `brew uninstall priorstates`) or the pip install.

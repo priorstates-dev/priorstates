@@ -4,7 +4,7 @@
 # Pure-Python (Architecture: all). Installs the `priorstates` package into the
 # system dist-packages so `python3 -m priorstates` / the `priorstates` command work
 # with the system python3. Only numpy is a hard dependency (apt: python3-numpy);
-# Tk (GUI) and Node (cockpit) are Recommends. The MCP server + semantic model
+# Tk (GUI) is a Recommends; the cockpit is pure Python (no Node). The MCP server + semantic model
 # need extra pip packages (printed by postinst).
 #
 #   packaging/deb/build-deb.sh           # → build/deb/priorstates_<ver>_all.deb
@@ -178,7 +178,7 @@ Section: utils
 Priority: optional
 Installed-Size: $INSTALLED_KB
 Depends: python3 (>= 3.10), python3-numpy
-Recommends: python3-tk, nodejs
+Recommends: python3-tk
 Suggests: python3-pip
 Homepage: https://github.com/priorstates/priorstates
 Description: Shared memory and research journal for your AI agents
@@ -233,7 +233,7 @@ find "$STAGE" -type d -exec chmod 0755 {} +
 find "$STAGE" -type f -exec chmod 0644 {} +
 chmod 0755 "$STAGE/usr/bin/priorstates" "$STAGE/usr/bin/priorstates-gui" \
            "$STAGE/DEBIAN/postinst" "$STAGE/DEBIAN/prerm" \
-           "$STAGE/usr/lib/python3/dist-packages/priorstates/cockpit/server.js"
+           "$STAGE/usr/lib/python3/dist-packages/priorstates/cockpit/server.py"
 
 # ---- build ----------------------------------------------------------------
 DEB="$OUT/${PKG}_${VERSION}_${ARCH}.deb"

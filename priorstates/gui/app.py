@@ -1207,7 +1207,7 @@ class PriorStatesGUI:
             entry["proc"].terminate()           # toggle changed → relaunch
             cks.pop(key, None)
 
-        server = Path(__file__).resolve().parents[1] / "cockpit" / "server.js"
+        server = Path(__file__).resolve().parents[1] / "cockpit" / "server.py"
         port = _free_local_port(7700)
         env = dict(os.environ)
         env["PRIORSTATES_HOME"] = str(self.cfg.home)
@@ -1221,20 +1221,10 @@ class PriorStatesGUI:
         env["PS_ALLOW_TERMINAL"] = "1"   # …and the embedded terminal (your own machine)
         if want_open:
             env["PS_ALLOW_OPEN"] = "1"
-        if not shutil.which("node"):
-            from tkinter import messagebox
-            self.set_status("Node.js not found — the cockpit needs it (nothing else does)")
-            messagebox.showinfo(
-                "Node.js needed for the cockpit",
-                "The web cockpit is served by Node.js, which isn't installed.\n\n"
-                "Node is used by the cockpit ONLY — memory, journal, agents and this "
-                "GUI all work without it.\n\n"
-                "Install Node.js from https://nodejs.org, then click Open Cockpit again.")
-            return
         try:
-            proc = subprocess.Popen(["node", str(server)], env=env)
-        except FileNotFoundError:
-            self.set_status("Node.js not found — install it from nodejs.org to use the cockpit")
+            proc = subprocess.Popen([sys.executable, str(server)], env=env)
+        except Exception as e:
+            self.set_status(f"could not start cockpit: {e}")
             return
         cks[key] = {"proc": proc, "port": port, "allow_open": want_open}
         self.root.after(900, lambda p=port: webbrowser.open(f"http://127.0.0.1:{p}/"))

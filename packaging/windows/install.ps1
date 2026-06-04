@@ -12,8 +12,8 @@
   powershell -ExecutionPolicy Bypass -File packaging\windows\install.ps1 -Extras -Model -Wire
 
 .NOTES
-  Requires Python >= 3.10 on PATH (or pass -Python).  Node.js is optional
-  (needed only for the cockpit web UI).
+  Requires Python >= 3.10 on PATH (or pass -Python). No Node.js needed --
+  the cockpit is pure Python.
 #>
 [CmdletBinding()]
 param(
@@ -121,5 +121,5 @@ Write-Host ""
 Write-Host "Try:"
 Write-Host "  $Py -m priorstates doctor"
 Write-Host "  $Py -m priorstates gui"
-Write-Host "  $Py -m priorstates cockpit       # -> http://127.0.0.1:7700 (needs Node.js)"
+Write-Host "  $Py -m priorstates cockpit       # -> http://127.0.0.1:7700"
 if (-not $Wire) { Write-Host "  $Py -m priorstates agents install" }

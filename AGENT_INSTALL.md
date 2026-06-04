@@ -111,19 +111,16 @@ Tell them, concisely:
      shortcut) to start the GUI."*
    - **macOS (native installer):** *"Open **PriorStates** from Launchpad."*
      After a bare pip install with no icon: *"Start it with `priorstates gui`."*
-4. They can also open the web cockpit any time (the cockpit -- and only the
-   cockpit -- needs **Node.js**; memory, journal, the CLI and the GUI all work
-   without it):
+4. They can also open the web cockpit any time (pure Python -- no Node.js):
    ```bash
    python3 -m priorstates cockpit    # -> http://127.0.0.1:7700
    ```
 
 ## Notes
 
-- **Node.js is optional.** It is needed *only* for the web cockpit. The core --
-  memory, journal, MCP server, CLI, and the desktop GUI -- is pure Python and
-  needs no Node. Don't install Node unless the user wants the cockpit; if it's
-  missing, `priorstates cockpit` says so and everything else keeps working.
+- **No Node.js needed.** The entire product -- memory, journal, MCP server, CLI,
+  desktop GUI, and the web cockpit -- is pure Python. The only hard dependency is
+  `numpy`.
 - **Idempotent** -- safe to re-run; it force-reinstalls and re-wires cleanly.
 - **Optional semantic recall** (~127 MB model download):
   `python3 -m priorstates init --download-model`. Not required -- a built-in

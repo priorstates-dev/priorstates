@@ -306,7 +306,7 @@ def cmd_agents(args):
 
 def cmd_cockpit(args):
     cfg = load_config(force_project=args.project) if args.project else load_config()
-    server = _pkg_dir() / "cockpit" / "server.js"
+    server = _pkg_dir() / "cockpit" / "server.py"
     if not server.exists():
         print(f"cockpit server not found at {server}", file=sys.stderr)
         sys.exit(1)
@@ -343,20 +343,17 @@ def cmd_cockpit(args):
             print("  terminal: enabled (a shell in the browser; --no-terminal to disable)")
         else:
             print("  terminal: ENABLED on a non-loopback host — this exposes a shell to the network!")
-    import shutil
-    node = shutil.which("node") or shutil.which("node.exe")
-    if not node:
-        print("node.js is required to run the cockpit but was not found on PATH.\n"
-              "Install Node.js (https://nodejs.org) and retry.", file=sys.stderr)
-        sys.exit(1)
+    # The cockpit is a pure-Python stdlib server now (no Node.js dependency) --
+    # run it with this same interpreter.
+    py = sys.executable or "python3"
     sys.stdout.flush()
     if os.name == "nt":
         # execvpe is unreliable on Windows consoles; run as a child and exit with it.
         try:
-            sys.exit(subprocess.call([node, str(server)], env=env))
+            sys.exit(subprocess.call([py, str(server)], env=env))
         except KeyboardInterrupt:
             sys.exit(0)
-    os.execvpe(node, [node, str(server)], env)  # POSIX: replace this process
+    os.execvpe(py, [py, str(server)], env)  # POSIX: replace this process
 
 
 def _bootstrap_remote(host: str, ssh: list[str]) -> str | None:
@@ -495,7 +492,7 @@ def cmd_connect(args):
         runner = _bootstrap_remote(host, SSH)
         if not runner:
             print(f"could not bootstrap PriorStates on {host}. Install it manually "
-                  f"(needs python3 + numpy + node), then retry.", file=sys.stderr)
+                  f"(needs python3 + numpy), then retry.", file=sys.stderr)
             sys.exit(1)
     else:
         runner = "priorstates" if state == "OK" else "python3 -m priorstates"
@@ -577,7 +574,6 @@ def cmd_doctor(args):
     print(f"embedder:       {getattr(emb, 'backend', '?')} (dim={emb.dim})")
     if getattr(emb, "backend", "") == "hashing":
         print("                ↳ run `priorstates init --download-model` for semantic recall")
-    print(f"node present:   {bool(_which('node'))}")
     from .agents.install import mcp_importable
     mcp_ok = mcp_importable()
     print(f"mcp server:     {'runnable' if mcp_ok else 'NOT runnable — agents get no tools'}")

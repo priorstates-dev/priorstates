@@ -27,7 +27,7 @@ sudo apt install ./build/deb/priorstates_0.1.0_all.deb     # resolves deps
   `dist-packages`, so `priorstates`, `priorstates-gui`, and `python3 -m priorstates` all
   work with the system `python3`.
 - **Depends:** `python3 (>= 3.10)`, `python3-numpy`.
-  **Recommends:** `python3-tk` (GUI), `nodejs` (cockpit).
+  **Recommends:** `python3-tk` (GUI). The cockpit is pure Python (no Node).
 - Ships a desktop launcher (**PriorStates** in your app menu), an icon, and man
   pages. Build is **lintian-clean**.
 - Memory, journal, mdlab and the cockpit work immediately. For agent (MCP)
@@ -90,7 +90,7 @@ per-user installer (no admin). Double-clicking the `.exe`:
   gui`, no console window) and **PriorStates Cockpit** to the Start Menu, plus an
   optional Desktop shortcut.
 
-Node.js is optional (only the cockpit web UI needs it). Extras for MCP + semantic
+No Node.js needed -- the cockpit is pure Python. Extras for MCP + semantic
 recall: `py -3 -m pip install --user mcp onnxruntime tokenizers`.
 **Uninstall** via *Apps & features* → PriorStates.
 

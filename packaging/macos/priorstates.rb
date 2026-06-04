@@ -20,7 +20,6 @@ class PriorStates < Formula
   head "https://github.com/priorstates/priorstates.git", branch: "main"
 
   depends_on "python@3.12"
-  depends_on "node" => :recommended   # for the web cockpit
 
   def install
     venv = virtualenv_create(libexec, "python3.12")

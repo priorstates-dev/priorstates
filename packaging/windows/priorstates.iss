@@ -7,7 +7,7 @@
 ;
 ; This is a per-user install (no admin). It bundles the wheel and pip-installs it
 ; into the user's existing Python (>= 3.10 must be on PATH), then adds Start Menu
-; and Desktop shortcuts that launch the desktop GUI. Node.js is optional (cockpit).
+; and Desktop shortcuts that launch the desktop GUI. No Node.js needed.
 
 #ifndef MyAppVersion
   #define MyAppVersion "0.1.0"
