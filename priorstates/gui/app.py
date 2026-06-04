@@ -9,6 +9,7 @@ safe on headless machines.
 from __future__ import annotations
 
 import os
+import re
 import subprocess
 import sys
 import threading
@@ -52,6 +53,66 @@ EXAMPLE_JOURNAL = [
          body="A blind parameter grid produced noise-dominated winners; hypothesis-driven "
               "tuning did better.\n\n(Example journal entry — safe to delete.)"),
 ]
+
+
+def _slugify(s, maxwords=6, maxlen=48):
+    words = re.findall(r"[A-Za-z0-9]+", (s or "").lower())
+    slug = "-".join(words[:maxwords])[:maxlen].strip("-")
+    return slug or "note"
+
+
+def parse_memory_text(text, valid_types):
+    """Free text → {name, type_str, description, body, pinned} via local rules.
+
+    Pure + deterministic (no model, no network) so it's unit-testable headless.
+    `#pin` (or the word 'important') pins; the type is guessed from cue words and
+    constrained to `valid_types`; the name is slugged from the first sentence;
+    the full original text is kept as the body.
+    """
+    raw = (text or "").strip()
+    low = raw.lower()
+    pinned = bool(re.search(r"(^|\s)#pin\b", low) or re.search(r"\bimportant\b", low))
+    cleaned = re.sub(r"(^|\s)#\w[\w-]*", " ", raw).strip()        # drop hashtags from the title text
+    first = re.split(r"(?<=[.!?])\s|\n", cleaned or raw, maxsplit=1)[0].strip()
+    description = first[:120]
+    typ = "note"
+    if "preference" in valid_types and re.search(r"\b(i prefer|prefer|i like|always|never|favou?rite|rather)\b", low):
+        typ = "preference"
+    elif "project" in valid_types and re.search(r"\b(this (project|repo|repository|codebase)|we use|our team|the project)\b", low):
+        typ = "project"
+    elif "reference" in valid_types and re.search(r"https?://", low):
+        typ = "reference"
+    elif "user" in valid_types and re.search(r"\b(i am|i'm|my name|my role|call me|i work)\b", low):
+        typ = "user"
+    return dict(name=_slugify(description), type_str=typ, description=description,
+                body=raw, pinned=pinned)
+
+
+def parse_journal_text(text, outcomes):
+    """Free text → {topic, outcome, title, body} via local rules (pure, testable).
+
+    Outcome is the first `outcomes` word found, else a synonym match, else the
+    first outcome. Topic comes from a `#tag` or `topic:` prefix, else a short
+    slug. Title is the first sentence; body is the full text.
+    """
+    raw = (text or "").strip()
+    low = raw.lower()
+    outcome = next((o for o in outcomes if re.search(r"\b" + re.escape(o.lower()) + r"\b", low)), None)
+    if outcome is None:
+        syn = [("winner", r"\b(won|worked|works|success|improved|beat|win)\b"),
+               ("loser", r"\b(failed|fail|didn'?t work|lost|worse|regress|no edge)\b"),
+               ("bug", r"\b(bug|broken|crash|error|wrong)\b"),
+               ("decision", r"\b(decided|decision|chose|choose|going with)\b")]
+        outcome = next((o for o, pat in syn if o in outcomes and re.search(pat, low)), None)
+    if outcome is None:
+        outcome = outcomes[0] if outcomes else "note"
+    m = re.search(r"#(\w[\w-]*)", raw)
+    mt = re.match(r"\s*topic\s*[:=]\s*([^\s,;]+)", raw, re.I)
+    topic = (m.group(1) if m else (mt.group(1) if mt else _slugify(raw, maxwords=3, maxlen=24)))
+    title_src = re.sub(r"#\w[\w-]*", "", raw).strip()
+    title_src = re.sub(r"^\s*topic\s*[:=]\s*[^\s,;]+\s*", "", title_src, flags=re.I).strip()
+    title = (re.split(r"(?<=[.!?])\s|\n", title_src, maxsplit=1)[0].strip()[:120]) or "note"
+    return dict(topic=topic, outcome=outcome, title=title, body=raw)
 
 
 class _Tip:
@@ -1062,9 +1123,9 @@ class PriorStatesGUI:
         frame = self._tabs.get(name)
         if frame is not None:
             self._nb.select(frame)
-        if focus and name == "memory" and getattr(self, "_mem_name_entry", None) is not None:
-            self._mem_name_entry.focus_set()
-            self.set_status("Type a short name + a fact, then click Add.")
+        if focus and name == "memory" and getattr(self, "mem_capture", None) is not None:
+            self.mem_capture.focus_set()
+            self.set_status("Type a memory in plain English, then click Save.")
 
     def open_docs(self):
         webbrowser.open("https://priorstates.com")
@@ -1189,11 +1250,27 @@ class PriorStatesGUI:
 
         form = ttk.LabelFrame(f, text="Add memory")
         form.pack(fill="x", padx=10, pady=8)
+        # --- free-text capture (primary) ---
+        ttk.Label(form, text="Jot a memory in plain English  (add  #pin  to pin it):").pack(
+            anchor="w", padx=6, pady=(6, 2))
+        self.mem_capture = tk.Text(form, height=3, wrap="word")
+        self.mem_capture.pack(fill="x", padx=6)
+        cap = ttk.Frame(form); cap.pack(fill="x", padx=6, pady=6)
+        ttk.Button(cap, text="Save", command=self.mem_quick_add, style="Accent.TButton").pack(side="left")
+        self._mem_details_btn = ttk.Button(cap, text="▸ details", style="Ws.TButton",
+                                            command=self._toggle_mem_details)
+        self._mem_details_btn.pack(side="left", padx=6)
+        ttk.Button(cap, text="Pin/Unpin selected", command=self.mem_toggle_pin).pack(side="left", padx=6)
+        ttk.Button(cap, text="Delete selected", command=self.mem_delete).pack(side="left")
+        tk.Label(form, text="Tip: or just tell your agent — it writes memories for you as you work.",
+                 bg=BG, fg=DIM).pack(anchor="w", padx=6, pady=(0, 6))
+        # --- structured fields (advanced; hidden until "details") ---
         self.mem_name = tk.StringVar()
         self.mem_type = tk.StringVar(value="note")
         self.mem_desc = tk.StringVar()
         self.mem_pin = tk.BooleanVar()
-        r = ttk.Frame(form); r.pack(fill="x", pady=2)
+        self._mem_details = ttk.Frame(form)        # packed by _toggle_mem_details
+        r = ttk.Frame(self._mem_details); r.pack(fill="x", pady=2)
         ttk.Label(r, text="name").pack(side="left")
         self._mem_name_entry = ttk.Entry(r, textvariable=self.mem_name, width=24)
         self._mem_name_entry.pack(side="left", padx=4)
@@ -1201,16 +1278,41 @@ class PriorStatesGUI:
         self.mem_type_cb = ttk.Combobox(r, textvariable=self.mem_type, values=self.cfg.memory_types, width=12)
         self.mem_type_cb.pack(side="left", padx=4)
         ttk.Checkbutton(r, text="pin", variable=self.mem_pin).pack(side="left")
-        r2 = ttk.Frame(form); r2.pack(fill="x", pady=2)
+        r2 = ttk.Frame(self._mem_details); r2.pack(fill="x", pady=2)
         ttk.Label(r2, text="desc").pack(side="left")
         ttk.Entry(r2, textvariable=self.mem_desc, width=60).pack(side="left", padx=4)
-        self.mem_body = tk.Text(form, height=3)
+        self.mem_body = tk.Text(self._mem_details, height=3)
         self.mem_body.pack(fill="x", padx=4, pady=2)
-        br = ttk.Frame(form); br.pack(fill="x")
-        ttk.Button(br, text="Add", command=self.mem_add, style="Accent.TButton").pack(side="left")
-        ttk.Button(br, text="Pin/Unpin selected", command=self.mem_toggle_pin).pack(side="left", padx=6)
-        ttk.Button(br, text="Delete selected", command=self.mem_delete).pack(side="left")
+        ttk.Button(self._mem_details, text="Add (structured)", command=self.mem_add,
+                   style="Accent.TButton").pack(anchor="w", pady=(0, 4))
         self._mem_rows = []
+
+    def _toggle_mem_details(self):
+        if self._mem_details.winfo_ismapped():
+            self._mem_details.pack_forget()
+            self._mem_details_btn.config(text="▸ details")
+        else:
+            self._mem_details.pack(fill="x", padx=6, pady=(0, 4))
+            self._mem_details_btn.config(text="▾ details")
+
+    def mem_quick_add(self):
+        from ..memory import api as mem
+        text = self.mem_capture.get("1.0", "end").strip()
+        if not text:
+            return self.set_status("Type a memory first.")
+        d = parse_memory_text(text, list(self.cfg.memory_types))
+        name, base, i = d["name"], d["name"], 2
+        while mem.get_memory(self.cfg, name):       # keep names unique
+            name = f"{base}-{i}"; i += 1
+        try:
+            mem.add_memory(self.cfg, name=name, type_str=d["type_str"], description=d["description"],
+                           body=d["body"], pinned=d["pinned"], scope="project")
+            self.set_status("saved '%s'  (type=%s%s)" % (name, d["type_str"],
+                            ", pinned" if d["pinned"] else ""))
+            self.mem_capture.delete("1.0", "end")
+            self._refresh_mem()
+        except Exception as e:
+            self.set_status(f"error: {e}")
 
     def _refresh_mem(self):
         from ..memory import api as mem
@@ -1305,18 +1407,58 @@ class PriorStatesGUI:
 
         form = ttk.LabelFrame(f, text="Add entry")
         form.pack(fill="x", padx=10, pady=8)
+        # --- free-text capture (primary) ---
+        ttk.Label(form, text=("Describe what happened in plain English  "
+                              "(e.g. “grid search was too noisy — loser #tuning”):")).pack(
+            anchor="w", padx=6, pady=(6, 2))
+        self.jr_capture = tk.Text(form, height=3, wrap="word")
+        self.jr_capture.pack(fill="x", padx=6)
+        cap = ttk.Frame(form); cap.pack(fill="x", padx=6, pady=6)
+        ttk.Button(cap, text="Record", command=self.jr_quick_add, style="Accent.TButton").pack(side="left")
+        self._jr_details_btn = ttk.Button(cap, text="▸ details", style="Ws.TButton",
+                                           command=self._toggle_jr_details)
+        self._jr_details_btn.pack(side="left", padx=6)
+        tk.Label(form, text="Tip: or let your agent log winners and losers as it works.",
+                 bg=BG, fg=DIM).pack(anchor="w", padx=6, pady=(0, 6))
+        # --- structured fields (advanced; hidden until "details") ---
         self.jr_topic = tk.StringVar(); self.jr_outcome = tk.StringVar(value="winner"); self.jr_title = tk.StringVar()
-        r = ttk.Frame(form); r.pack(fill="x", pady=2)
+        self._jr_details = ttk.Frame(form)
+        r = ttk.Frame(self._jr_details); r.pack(fill="x", pady=2)
         ttk.Label(r, text="topic").pack(side="left")
         ttk.Entry(r, textvariable=self.jr_topic, width=20).pack(side="left", padx=4)
         ttk.Label(r, text="outcome").pack(side="left")
         self.jr_outcome_cb = ttk.Combobox(r, textvariable=self.jr_outcome, values=self.cfg.outcomes, width=14)
         self.jr_outcome_cb.pack(side="left", padx=4)
-        r2 = ttk.Frame(form); r2.pack(fill="x", pady=2)
+        r2 = ttk.Frame(self._jr_details); r2.pack(fill="x", pady=2)
         ttk.Label(r2, text="title").pack(side="left")
         ttk.Entry(r2, textvariable=self.jr_title, width=64).pack(side="left", padx=4)
-        self.jr_body = tk.Text(form, height=3); self.jr_body.pack(fill="x", padx=4, pady=2)
-        ttk.Button(form, text="Record", command=self.jr_add, style="Accent.TButton").pack(anchor="w")
+        self.jr_body = tk.Text(self._jr_details, height=3); self.jr_body.pack(fill="x", padx=4, pady=2)
+        ttk.Button(self._jr_details, text="Record (structured)", command=self.jr_add,
+                   style="Accent.TButton").pack(anchor="w", pady=(0, 4))
+
+    def _toggle_jr_details(self):
+        if self._jr_details.winfo_ismapped():
+            self._jr_details.pack_forget()
+            self._jr_details_btn.config(text="▸ details")
+        else:
+            self._jr_details.pack(fill="x", padx=6, pady=(0, 4))
+            self._jr_details_btn.config(text="▾ details")
+
+    def jr_quick_add(self):
+        from ..core import journal as J
+        text = self.jr_capture.get("1.0", "end").strip()
+        if not text:
+            return self.set_status("Describe what happened first.")
+        if not self.cfg.journal_dir:
+            return self.set_status("Journal needs a project — add a project folder from the left sidebar.")
+        d = parse_journal_text(text, list(self.cfg.outcomes))
+        try:
+            e = J.add(self.cfg, topic=d["topic"], outcome=d["outcome"], title=d["title"], body=d["body"])
+            self.set_status("recorded %s  (%s · %s)" % (e.id, d["outcome"], d["topic"]))
+            self.jr_capture.delete("1.0", "end")
+            self._refresh_journal()
+        except Exception as ex:
+            self.set_status(f"error: {ex}")
 
     def _refresh_journal(self):
         from ..core import journal as J
