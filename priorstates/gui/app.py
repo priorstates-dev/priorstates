@@ -923,34 +923,40 @@ class PriorStatesGUI:
         # Checklist (rebuilt by _render_dashboard on every refresh).
         self._dash_check = ttk.Frame(f); self._dash_check.pack(fill="x", padx=16, pady=8)
 
-        # Quick links row.
-        links = ttk.Frame(f); links.pack(fill="x", padx=16, pady=(2, 6))
-        self.allow_open = tk.BooleanVar(value=False)   # cockpit --allow-open toggle
-        cb = ttk.Checkbutton(links, text="Cockpit: open-in-editor buttons", variable=self.allow_open)
-        cb.pack(side="left")
-        self._tip(cb, "When on, the web cockpit shows buttons that open files in your editor.")
-        db = ttk.Button(links, text="Docs", command=self.open_docs); db.pack(side="left", padx=6)
-        self._tip(db, "Open the PriorStates documentation in your browser.")
-        rb = ttk.Button(links, text="Refresh", command=self.refresh_all); rb.pack(side="left")
-        self._tip(rb, "Re-check status (agents wired, memory count, model).")
+        self.allow_open = tk.BooleanVar(value=False)   # cockpit --allow-open toggle (lives in System status)
 
-        # Collapsible system-status (the old diagnostic readout), hidden by default.
+        # Footer: status toggle on the left, subtle Docs/Refresh links on the right.
+        footer = ttk.Frame(f); footer.pack(fill="x", padx=16, pady=(12, 6))
         self._status_open = tk.BooleanVar(value=False)
-        self._status_toggle = ttk.Button(f, text="▸ System status", style="Ws.TButton",
-                                          command=self._toggle_status)
-        self._status_toggle.pack(fill="x", padx=16, pady=(8, 0))
-        self.dash_text = tk.Text(f, height=9, wrap="word", relief="flat",
+        self._status_toggle = ttk.Button(footer, text="▸ System status & options",
+                                          style="Ws.TButton", command=self._toggle_status)
+        self._status_toggle.pack(side="left")
+        rb = ttk.Button(footer, text="Refresh", style="Ws.TButton", command=self.refresh_all)
+        rb.pack(side="right")
+        self._tip(rb, "Re-check status (agents wired, memory count, model).")
+        db = ttk.Button(footer, text="Docs", style="Ws.TButton", command=self.open_docs)
+        db.pack(side="right", padx=6)
+        self._tip(db, "Open the PriorStates documentation in your browser.")
+
+        # Collapsible "System status & options" (advanced; hidden by default).
+        self._status_box = ttk.Frame(f)
+        cbo = ttk.Checkbutton(self._status_box, text="Cockpit: show “open in editor” buttons",
+                              variable=self.allow_open)
+        cbo.pack(anchor="w", padx=16, pady=(2, 6))
+        self._tip(cbo, "When on, the web cockpit shows buttons that open files in your editor.")
+        self.dash_text = tk.Text(self._status_box, height=9, wrap="word", relief="flat",
                                  bg=BG2, fg=DIM, insertbackground=FG, borderwidth=0)
-        # not packed → hidden until toggled
+        self.dash_text.pack(fill="both", expand=True, padx=16, pady=(0, 12))
+        # _status_box stays unpacked until toggled.
 
     def _toggle_status(self):
         if self._status_open.get():
-            self.dash_text.pack_forget()
-            self._status_toggle.config(text="▸ System status")
+            self._status_box.pack_forget()
+            self._status_toggle.config(text="▸ System status & options")
             self._status_open.set(False)
         else:
-            self.dash_text.pack(fill="both", expand=True, padx=16, pady=(2, 12))
-            self._status_toggle.config(text="▾ System status")
+            self._status_box.pack(fill="both", expand=True)
+            self._status_toggle.config(text="▾ System status & options")
             self._status_open.set(True)
 
     def _dashboard_items(self):
