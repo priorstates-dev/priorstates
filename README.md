@@ -19,7 +19,7 @@ Runs entirely on your machine · CPU-only · no API keys · no cloud calls.
 
 🌐 **[priorstates.com](https://priorstates.com)**  ·  🎬 **[80-second demo](https://priorstates.com)**  ·  📖 **[Docs](docs/USER_GUIDE.md)**
 
-<img src="docs/img/cockpit.png" alt="The PriorStates cockpit — search and manage memory, journal and docs in one local web view" width="860">
+<img src="docs/img/demo.gif" alt="PriorStates in action: save a memory, then recall it by meaning in a brand-new agent session" width="760">
 
 </div>
 
@@ -61,7 +61,9 @@ protocol by `priorstates agents install` — so they *recall* before acting and
 
 ## See it in action
 
-The cockpit (above) maps everything; the CLI captures and recalls from your terminal:
+The **cockpit** maps your whole research surface; the **CLI** captures and recalls from your terminal.
+
+<img src="docs/img/cockpit.png" alt="The PriorStates cockpit — search and manage memory, journal and docs in one local web view" width="820">
 
 <img src="docs/img/cli.png" alt="PriorStates CLI — capture a memory in plain English, list pinned memories, search the journal by outcome" width="720">
 
