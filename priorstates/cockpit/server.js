@@ -234,8 +234,22 @@ function serveStatic(res, rel) {
 function apiFile(res, abs) {
   if (!abs || !underRoot(abs)) return send(res, 403, JSON.stringify({ error: 'outside root' }));
   let txt; try { txt = fs.readFileSync(abs, 'utf8'); } catch (_) { return send(res, 404, JSON.stringify({ error: 'not found' })); }
-  const title = (txt.split('\n').find((l) => l.startsWith('# ')) || path.basename(abs)).replace(/^#\s*/, '').trim();
-  sendJson(res, { file: abs, rel: ROOTS.map((r) => path.relative(r, abs)).sort((a, b) => a.length - b.length)[0], title, html: mdToHtml(txt, path.dirname(abs)) });
+  // Strip YAML frontmatter for display (don't show raw `--- id: … ---`); lift its title.
+  let fmTitle = '';
+  if (txt.startsWith('---')) {
+    const end = txt.indexOf('\n---', 3);
+    if (end !== -1) {
+      const m = txt.slice(3, end).match(/^\s*title:\s*(.+)$/m);
+      if (m) fmTitle = m[1].trim();
+      const nl = txt.indexOf('\n', end + 1);
+      txt = nl === -1 ? '' : txt.slice(nl + 1);
+    }
+  }
+  let body = txt.replace(/^\s+/, '');
+  const h1 = body.split('\n').find((l) => l.startsWith('# '));
+  const title = (h1 ? h1.replace(/^#\s*/, '') : (fmTitle || path.basename(abs))).trim();
+  if (!h1 && title) body = '# ' + title + '\n\n' + body;   // give the pane a clean heading
+  sendJson(res, { file: abs, rel: ROOTS.map((r) => path.relative(r, abs)).sort((a, b) => a.length - b.length)[0], title, html: mdToHtml(body, path.dirname(abs)) });
 }
 
 // Run an mdlab file via the PriorStates engine ON THIS HOST (so on a remote server,
