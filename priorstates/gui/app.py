@@ -808,6 +808,11 @@ class PriorStatesGUI:
         style.configure("Ws.TButton", background=BG2, foreground=FG, bordercolor=BG2,
                         relief="flat", anchor="w", padding=(10, 8))
         style.map("Ws.TButton", background=[("active", HOVER)], bordercolor=[("active", BG2)])
+        # footer links — flat, dim, CENTER-aligned text (unlike the left-anchored Ws button)
+        style.configure("Foot.TButton", background=BG2, foreground=DIM, bordercolor=BG2,
+                        relief="flat", anchor="center", padding=(12, 6))
+        style.map("Foot.TButton", background=[("active", HOVER)], foreground=[("active", "#ffffff")],
+                  bordercolor=[("active", BG2)])
         style.configure("WsActive.TButton", background=BG3, foreground=FG, bordercolor=ACCENT,
                         relief="flat", anchor="w", padding=(10, 8))
         style.map("WsActive.TButton", background=[("active", BG3)], bordercolor=[("active", ACCENT)])
@@ -910,19 +915,16 @@ class PriorStatesGUI:
 
         self.allow_open = tk.BooleanVar(value=True)    # open-in-editor on by default (toggle in System status)
 
-        # Footer: status toggle on the left, subtle Docs/Refresh links on the right.
+        # Footer: status toggle on the left, centered Update/Docs links on the right.
         footer = ttk.Frame(f); footer.pack(fill="x", padx=16, pady=(12, 6))
         self._status_open = tk.BooleanVar(value=False)
         self._status_toggle = ttk.Button(footer, text="▸ System status & options",
                                           style="Ws.TButton", command=self._toggle_status)
         self._status_toggle.pack(side="left")
-        rb = ttk.Button(footer, text="Refresh", style="Ws.TButton", command=self.refresh_all)
-        rb.pack(side="right")
-        self._tip(rb, "Re-check status (agents wired, memory count, model).")
-        db = ttk.Button(footer, text="Docs", style="Ws.TButton", command=self.open_docs)
+        db = ttk.Button(footer, text="Docs", style="Foot.TButton", command=self.open_docs)
         db.pack(side="right", padx=6)
         self._tip(db, "Open the PriorStates documentation in your browser.")
-        ub = ttk.Button(footer, text="Update", style="Ws.TButton", command=self.update_software)
+        ub = ttk.Button(footer, text="Update", style="Foot.TButton", command=self.update_software)
         ub.pack(side="right", padx=6)
         self._tip(ub, "Reinstall the latest PriorStates from GitHub (restart the app afterward).")
 
