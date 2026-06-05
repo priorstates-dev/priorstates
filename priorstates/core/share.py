@@ -80,7 +80,7 @@ def _fm_tags(text: str) -> set[str]:
 def export_workspace(config, *, scope: str = "project", out_path=None,
                      name: str | None = None, author: str | None = None,
                      tags: list[str] | None = None,
-                     types: list[str] | None = None) -> Path:
+                     types: list[str] | None = None, sign: bool = False) -> Path:
     """Bundle a workspace's memory + journal into a `.psworkspace`.
 
     `tags` / `types` are an optional **selection filter** — the promotion gate.
@@ -148,6 +148,13 @@ def export_workspace(config, *, scope: str = "project", out_path=None,
             "tags": sorted(want_tags), "types": sorted(want_types),
             "skipped_memory": skipped_mem, "skipped_journal": skipped_jr,
         }
+    if sign:
+        from . import identity
+        sig = identity.sign_manifest(config, manifest)
+        if sig is None:
+            raise RuntimeError("cannot sign: install the `sign` extra "
+                               "(pip install 'priorstates[sign]') for ed25519 support")
+        manifest["signature"] = sig
     out = Path(out_path) if out_path else Path.cwd() / (ws_name.replace("/", "-") + ".psworkspace")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -181,7 +188,12 @@ def read_bundle(src) -> tuple[dict, dict]:
     if isinstance(src, (bytes, bytearray)):
         data = bytes(src)
     elif str(src).startswith(("http://", "https://")):
-        with urllib.request.urlopen(str(src), timeout=30) as r:  # noqa: S310 (user-provided URL)
+        import os
+        req = urllib.request.Request(str(src))
+        key = os.environ.get("PRIORSTATES_HUB_KEY")
+        if key:  # access-controlled internal hub gates reads on this header
+            req.add_header("X-PriorStates-Key", key)
+        with urllib.request.urlopen(req, timeout=30) as r:  # noqa: S310 (user-provided URL)
             data = r.read()
     else:
         data = Path(src).read_bytes()
@@ -217,6 +229,12 @@ def summarize(manifest: dict) -> str:
               % (" ".join(crit), sel.get("skipped_memory", 0),
                  "y" if sel.get("skipped_memory", 0) == 1 else "ies",
                  sel.get("skipped_journal", 0)))
+    from . import identity
+    status, who = identity.verify_manifest(manifest)
+    s += {"unsigned": "  · ⚠ UNSIGNED",
+          "valid": f"  · ✓ signed by {who}",
+          "invalid": f"  · ✗ SIGNATURE INVALID ({who}) — do NOT trust",
+          "unverified": f"  · signed by {who} (unverified — install the `sign` extra)"}[status]
     return s
 
 

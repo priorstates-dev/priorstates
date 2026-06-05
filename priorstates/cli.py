@@ -208,7 +208,8 @@ def cmd_workspace(args):
         out = share.export_workspace(cfg, scope=args.scope, out_path=args.out,
                                      name=args.name, author=args.author,
                                      tags=getattr(args, "tag", None),
-                                     types=getattr(args, "types", None))
+                                     types=getattr(args, "types", None),
+                                     sign=getattr(args, "sign", False))
         manifest, _ = share.read_bundle(out)
         print(f"exported → {out}")
         print(share.summarize(manifest))
@@ -220,15 +221,37 @@ def cmd_workspace(args):
         src = share.packaged_demo() if getattr(args, "demo", False) else args.source
         if not src:
             print("give a .psworkspace file/URL, or --demo", file=sys.stderr); sys.exit(2)
-        manifest, _ = share.read_bundle(src)
+        manifest, members = share.read_bundle(src)
         print(share.summarize(manifest))
-        assume_yes = args.yes or getattr(args, "demo", False)  # the bundled demo is trusted
+        # trust checks — imported memory is fed to your agents
+        from .core import identity as _identity
+        from .core import scan as _scan
+        flagged = _scan.scan_bundle(manifest, members)
+        if flagged:
+            print(f"\n⚠ {len(flagged)} item(s) tripped the injection scanner:", file=sys.stderr)
+            for f, reasons in flagged.items():
+                print(f"    {f}: {', '.join(reasons)}", file=sys.stderr)
+        sig_status, sig_who = _identity.verify_manifest(manifest)
+        if sig_status == "invalid":
+            print(f"\n✗ SIGNATURE INVALID ({sig_who}) — the bundle was tampered with "
+                  "or signed by a mismatched key.", file=sys.stderr)
+        is_demo = getattr(args, "demo", False)  # the bundled demo is trusted
+        allow_flagged = getattr(args, "allow_flagged", False) or is_demo
+        risky = bool(flagged) or sig_status == "invalid"
+        if risky and not allow_flagged:
+            if not sys.stdin.isatty():
+                print("refusing to import flagged content — re-run with --allow-flagged "
+                      "if you've reviewed it.", file=sys.stderr)
+                sys.exit(3)
+            if input("Import despite the flags above? [y/N] ").strip().lower() not in ("y", "yes"):
+                print("cancelled."); return
+        assume_yes = args.yes or is_demo
         if not assume_yes:
             if not sys.stdin.isatty():
                 print("refusing to import non-interactively without --yes "
                       "(imported memory is used by your agents).", file=sys.stderr)
                 sys.exit(2)
-            if input("Import into your workspace? [y/N] ").strip().lower() not in ("y", "yes"):
+            if not risky and input("Import into your workspace? [y/N] ").strip().lower() not in ("y", "yes"):
                 print("cancelled."); return
         res = share.import_workspace(cfg, src)
         msg = f"imported '{res['name']}': +{res['memory_added']} memories"
@@ -250,7 +273,8 @@ def cmd_workspace(args):
         fd, tmp = tempfile.mkstemp(suffix=".psworkspace"); os.close(fd)
         try:
             share.export_workspace(cfg, scope=args.scope, out_path=tmp, name=args.name, author=args.author,
-                                   tags=getattr(args, "tag", None), types=getattr(args, "types", None))
+                                   tags=getattr(args, "tag", None), types=getattr(args, "types", None),
+                                   sign=getattr(args, "sign", False))
             manifest, _ = share.read_bundle(tmp)
             data = open(tmp, "rb").read()
         finally:
@@ -320,6 +344,25 @@ def cmd_workspace(args):
         if cid in reg:
             del reg[cid]; pubf.write_text(json.dumps(reg, indent=2), encoding="utf-8")
         print(f"unpublished {cid} from {hub}")
+
+
+def cmd_identity(args):
+    from .core import identity
+    cfg = load_config()
+    if not identity.available():
+        print("publisher signatures need the `sign` extra: "
+              "pip install 'priorstates[sign]'", file=sys.stderr)
+        sys.exit(2)
+    if args.action == "set-handle":
+        ident = identity.load_or_create_identity(cfg, handle=args.handle)
+        identity.set_handle(cfg, args.handle)
+        ident = identity.load_or_create_identity(cfg)
+    else:  # show / init both ensure-and-print
+        ident = identity.load_or_create_identity(cfg, handle=getattr(args, "handle", None))
+    print(f"handle:      {ident['handle']}")
+    print(f"fingerprint: {ident['fingerprint']}")
+    print(f"pubkey:      {ident['pubkey']}")
+    print(f"(keys in {identity.identity_dir(cfg)} — keep ed25519.key private)")
 
 
 # --------------------------------------------------------------------------- #
@@ -993,13 +1036,16 @@ def build_parser():
                     help="export only items carrying this tag (the promotion gate); repeatable")
     we.add_argument("--type", action="append", metavar="TYPE", dest="types",
                     help="export only memories of this type; repeatable")
+    we.add_argument("--sign", action="store_true", help="sign the manifest with your publisher key (needs the `sign` extra)")
     wi = pws.add_parser("import", help="import a .psworkspace file or URL (or --demo)")
     wi.add_argument("source", nargs="?", help="path or http(s) URL to a .psworkspace")
     wi.add_argument("--demo", action="store_true", help="import the bundled demo workspace")
     wi.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    wi.add_argument("--allow-flagged", action="store_true", help="import even if the injection scanner flags content")
     wl = pws.add_parser("install", help="install a workspace from a URL (alias for import)")
     wl.add_argument("source", help="http(s) URL (or path) to a .psworkspace")
     wl.add_argument("--yes", action="store_true", help="skip the confirmation prompt")
+    wl.add_argument("--allow-flagged", action="store_true", help="import even if the injection scanner flags content")
     wpub = pws.add_parser("publish", help="export + upload to the hub; prints a shareable link")
     wpub.add_argument("--scope", default="project", choices=["project", "global", "user", "all"])
     wpub.add_argument("--name"); wpub.add_argument("--author")
@@ -1007,6 +1053,7 @@ def build_parser():
                       help="publish only items carrying this tag (the promotion gate); repeatable")
     wpub.add_argument("--type", action="append", metavar="TYPE", dest="types",
                       help="publish only memories of this type; repeatable")
+    wpub.add_argument("--sign", action="store_true", help="sign the manifest with your publisher key (needs the `sign` extra)")
     wpub.add_argument("--list", action="store_true", help="list it in the public hub directory (default: unlisted private link)")
     wpub.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
     wun = pws.add_parser("unpublish", help="delete a published workspace from the hub (uses its saved edit token)")
@@ -1014,6 +1061,15 @@ def build_parser():
     wun.add_argument("--token", help="edit token (default: looked up in ~/.priorstates/published.json)")
     wun.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
     pw.set_defaults(func=cmd_workspace)
+
+    pid = sub.add_parser("identity", help="manage your publisher signing identity")
+    pids = pid.add_subparsers(dest="action", required=False)
+    pids.add_parser("show", help="show this machine's publisher identity (default)")
+    pii = pids.add_parser("init", help="create the signing keypair (and optionally set a handle)")
+    pii.add_argument("--handle", help="a public handle to sign as")
+    psh = pids.add_parser("set-handle", help="set the public handle")
+    psh.add_argument("handle")
+    pid.set_defaults(func=cmd_identity, action="show")
 
     pl = sub.add_parser("mdlab", help="run runnable-Markdown files")
     pls = pl.add_subparsers(dest="action", required=True)
