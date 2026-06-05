@@ -55,7 +55,10 @@ def write_marked_block(target: Path, block: str, begin: str, end: str) -> str:
         return "created"
     cur = target.read_text(encoding="utf-8")
     if begin in cur and end in cur:
-        new = block_re.sub(block.rstrip("\n"), cur, count=1)
+        # Function replacement: a plain string would make re.sub interpret
+        # backslash escapes in the block (memory text can contain \ — e.g. a
+        # Windows path — which would crash or silently corrupt the output).
+        new = block_re.sub(lambda _m: block.rstrip("\n"), cur, count=1)
         if new == cur:
             return "unchanged"
         target.write_text(new, encoding="utf-8")

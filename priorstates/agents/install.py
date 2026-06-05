@@ -105,14 +105,24 @@ def _json_unregister(adapter: Adapter) -> str:
 # --------------------------------------------------------------------------- #
 # TOML-config agents (codex) — managed marker block
 # --------------------------------------------------------------------------- #
+def _toml_str(s: str) -> str:
+    """Serialize a string as valid TOML. Prefer a LITERAL string (single quotes,
+    no escaping) — essential for Windows paths, whose backslashes are otherwise
+    read as escapes in a basic string (e.g. `\\Users` -> bad \\U unicode escape).
+    Fall back to a basic (json) string only when a literal can't hold the value."""
+    if "'" not in s and "\n" not in s and "\r" not in s and "\t" not in s:
+        return "'" + s + "'"
+    return json.dumps(s)
+
+
 def _toml_register(adapter: Adapter, spec: dict) -> str:
     p = adapter.mcp_config
-    args = ", ".join(json.dumps(a) for a in spec["args"])
-    env_lines = "\n".join(f'{k} = {json.dumps(v)}' for k, v in spec.get("env", {}).items())
+    args = ", ".join(_toml_str(a) for a in spec["args"])
+    env_lines = "\n".join(f'{k} = {_toml_str(v)}' for k, v in spec.get("env", {}).items())
     block = (
         f"{TOML_BEGIN}\n"
         f"[{adapter.mcp_key}.{SERVER_NAME}]\n"
-        f'command = {json.dumps(spec["command"])}\n'
+        f'command = {_toml_str(spec["command"])}\n'
         f"args = [{args}]\n"
         + (f"[{adapter.mcp_key}.{SERVER_NAME}.env]\n{env_lines}\n" if env_lines else "")
         + f"{TOML_END}\n"
@@ -120,7 +130,10 @@ def _toml_register(adapter: Adapter, spec: dict) -> str:
     p.parent.mkdir(parents=True, exist_ok=True)
     cur = p.read_text(encoding="utf-8") if p.exists() else ""
     if TOML_BEGIN in cur:
-        new = TOML_BLOCK_RE.sub(block.rstrip("\n"), cur)
+        # Use a function replacement: a string replacement makes re.sub interpret
+        # backslash escapes (a Windows path's \\U -> "bad escape \\U" crash, and
+        # \\\\ -> \\ silently corrupts the TOML). A function is passed through verbatim.
+        new = TOML_BLOCK_RE.sub(lambda _m: block.rstrip("\n"), cur)
         status = "unchanged" if new == cur else "registered"
     else:
         sep = "" if (not cur or cur.endswith("\n")) else "\n"
