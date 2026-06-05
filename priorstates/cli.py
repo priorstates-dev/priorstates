@@ -79,7 +79,7 @@ def _download_model():
     dest = home / "models" / "bge-small-en-v1.5"
     repo = os.environ.get("PRIORSTATES_HF_REPO", "BAAI/bge-small-en-v1.5")
     base = os.environ.get("PRIORSTATES_HF_BASE", "https://huggingface.co")
-    print(f"downloading {repo} → {dest} (~127 MB)…")
+    print(f"downloading {repo} -> {dest} (~127 MB)...")
 
     # Fast path: huggingface_hub if it happens to be installed.
     try:
@@ -99,7 +99,7 @@ def _download_model():
 
     onnx = dest / "onnx" / "model.onnx"
     if not onnx.exists() or onnx.stat().st_size < 1_000_000:
-        print("model files look incomplete — re-run `priorstates init --download-model`.")
+        print("model files look incomplete -- re-run `priorstates init --download-model`.")
         return
     print("model files installed.")
 
@@ -584,6 +584,29 @@ def cmd_doctor(args):
         flag = "✓" if (s["mcp_registered"] and mcp_ok) else ("·" if s["installed"] else " ")
         print(f"agent {s['agent']:<7} installed={s['installed']} "
               f"registered={s['mcp_registered']} runnable={mcp_ok} [{flag}]")
+
+    # Verify the interpreter recorded in each agent's config can import `mcp`. The
+    # server is spawned with THAT python, which may differ from this one (e.g. the
+    # GUI wired under a second/Store Python without `mcp`) — that shows up as a
+    # "Disconnected" server even though `agents install` reported success.
+    from .agents.adapters import ADAPTERS
+    from .agents.install import registered_command
+    checked = {}
+    for s in ag_status(cfg):
+        if not s["mcp_registered"] or s["agent"] not in ADAPTERS:
+            continue
+        cmd = registered_command(ADAPTERS[s["agent"]])
+        if not cmd:
+            continue
+        if cmd not in checked:
+            try:
+                checked[cmd] = subprocess.run([cmd, "-c", "import mcp"],
+                                              capture_output=True, timeout=20).returncode == 0
+            except Exception:
+                checked[cmd] = False
+        if not checked[cmd]:
+            print(f"  !! {s['agent']}: its MCP server Python can't import `mcp` -> server will be Disconnected.")
+            print(f"     fix:  \"{cmd}\" -m pip install --user mcp   (then restart the agent)")
 
 
 def _which(x):

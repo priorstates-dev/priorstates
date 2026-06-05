@@ -116,6 +116,19 @@ class PriorStatesGUI:
         # find them so detection/launch works without manual PATH surgery.
         from ..core.config import ensure_user_bin_on_path
         ensure_user_bin_on_path()
+        # Under pythonw there's no console: sys.stdout/err may be None, and a direct
+        # print of a non-ASCII char (-> ... checkmarks) would crash on a cp1252
+        # default. Make the std streams safe so background tasks never blow up.
+        import io as _io
+        for _n in ("stdout", "stderr"):
+            _s = getattr(sys, _n, None)
+            if _s is None:
+                setattr(sys, _n, _io.StringIO())
+            else:
+                try:
+                    _s.reconfigure(encoding="utf-8", errors="replace")
+                except Exception:
+                    pass
         root.title("PriorStates — shared memory & research journal for your AI agents")
         root.geometry("1140x710")
         root.minsize(940, 600)
@@ -1372,9 +1385,47 @@ class PriorStatesGUI:
                     lambda r: self.set_status(f"reindexed: {r}"))
 
     def download_model(self):
-        from ..cli import _download_model
-        self.set_status("downloading model… (see console)")
-        self.run_bg(_download_model, lambda r: (self.set_status("model step done"), self.refresh_all()))
+        # Semantic recall needs BOTH the ONNX model AND the inference libs, so
+        # install the libs and download the model. Capture all output to a buffer
+        # (the GUI has no console, and _download_model prints non-ASCII).
+        self.set_status("enabling semantic recall: installing libraries + model (~130 MB)…")
+
+        def work():
+            import contextlib
+            import io
+            from ..cli import _download_model, _importable
+            buf = io.StringIO()
+            with contextlib.redirect_stdout(buf), contextlib.redirect_stderr(buf):
+                for lib in ("onnxruntime", "tokenizers"):
+                    if not _importable(lib):
+                        cmd = [sys.executable, "-m", "pip", "install", lib]
+                        if sys.prefix == sys.base_prefix:      # not a venv → user install
+                            cmd.insert(4, "--user")
+                        try:
+                            subprocess.run(cmd, check=False, timeout=600,
+                                           creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0))
+                        except Exception as e:
+                            print(f"could not install {lib}: {e}")
+                try:
+                    _download_model()
+                except Exception as e:
+                    print(f"model download error: {e}")
+            return buf.getvalue()
+
+        def done(out):
+            try:
+                print(out)
+            except Exception:
+                pass
+            onnx = self.cfg.home / "models" / "bge-small-en-v1.5" / "onnx" / "model.onnx"
+            ok = onnx.exists() and onnx.stat().st_size > 1_000_000
+            self.refresh_all()
+            if ok:
+                self.set_status("semantic model installed ✓ — restart PriorStates to activate it")
+            else:
+                tail = [ln for ln in (out or "").strip().splitlines() if ln.strip()]
+                self.set_status("model download failed: " + (tail[-1] if tail else "check your network"))
+        self.run_bg(work, done)
 
     # Reinstall the latest PriorStates from GitHub (the pip-from-git path).
     REPO_URL = "git+https://github.com/zqin2012/priorstates.git"

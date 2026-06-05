@@ -155,6 +155,31 @@ def _toml_unregister(adapter: Adapter) -> str:
     return "removed"
 
 
+def registered_command(adapter: Adapter):
+    """The interpreter recorded for the PriorStates MCP server in this agent's
+    config, or None. Lets `doctor` check the *wired* Python can import `mcp`
+    (the server is spawned with this exact command), not just the current one."""
+    p = adapter.mcp_config
+    try:
+        text = p.read_text(encoding="utf-8") if p.exists() else ""
+    except OSError:
+        return None
+    if not text:
+        return None
+    if adapter.mcp_format == "json":
+        try:
+            data = json.loads(text or "{}")
+            return ((data.get(adapter.mcp_key) or {}).get(SERVER_NAME) or {}).get("command")
+        except Exception:
+            return None
+    # TOML: pull `command = '...'`/"..." from inside the priorstates table.
+    m = re.search(r"\[" + re.escape(adapter.mcp_key) + r"\." + re.escape(SERVER_NAME) +
+                  r"\](.*?)(?:\n\[|\Z)", text, re.S)
+    block = m.group(1) if m else text
+    m2 = re.search(r"command\s*=\s*(['\"])(.*?)\1", block, re.S)
+    return m2.group(2) if m2 else None
+
+
 def _register(adapter: Adapter, spec: dict) -> str:
     return _toml_register(adapter, spec) if adapter.mcp_format == "toml" else _json_register(adapter, spec)
 
