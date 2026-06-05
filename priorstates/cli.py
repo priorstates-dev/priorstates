@@ -9,7 +9,7 @@ import sys
 from pathlib import Path
 
 from .core.config import (
-    DEFAULT_CONFIG_TOML, PROJECT_MARKER, home_dir, load_config,
+    DEFAULT_CONFIG_TOML, PROJECT_MARKER, ensure_user_bin_on_path, home_dir, load_config,
 )
 
 
@@ -950,6 +950,7 @@ def main(argv=None):
             _stream.reconfigure(encoding="utf-8", errors="replace")
         except Exception:
             pass
+    ensure_user_bin_on_path()    # so launched agents / subprocesses find ~/.local/bin CLIs
     args = build_parser().parse_args(argv)
     args.func(args)
 

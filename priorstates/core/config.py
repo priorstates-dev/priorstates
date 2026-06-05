@@ -147,6 +147,18 @@ def home_dir() -> Path:
     return Path(os.environ.get("PRIORSTATES_HOME") or (Path.home() / ".priorstates")).expanduser()
 
 
+def ensure_user_bin_on_path() -> None:
+    """Native agent-CLI installers (Claude Code, etc.) drop their binary in
+    ``~/.local/bin``, which is NOT on PATH by default on Windows. Prepend that
+    dir to THIS process's PATH so PriorStates -- and anything it launches --
+    can find those CLIs even before the user adds it to their persistent PATH."""
+    extra = str(Path.home() / ".local" / "bin")
+    if os.path.isdir(extra):
+        cur = os.environ.get("PATH", "")
+        if extra not in cur.split(os.pathsep):
+            os.environ["PATH"] = extra + os.pathsep + cur
+
+
 def find_project_root(start: Path | str | None = None) -> Path | None:
     """Nearest ancestor of ``start`` (default cwd) that contains a ``.priorstates/``
     project dir. The global store (``$PRIORSTATES_HOME``, usually ``~/.priorstates``)

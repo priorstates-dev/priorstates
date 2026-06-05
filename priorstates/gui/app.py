@@ -111,6 +111,11 @@ class PriorStatesGUI:
         self.ttk = ttk
         self.root = root
         self._explicit_project = project
+        # Native CLI installers (Claude Code, etc.) drop binaries in ~/.local/bin,
+        # not on PATH by default on Windows — make this process (and its launches)
+        # find them so detection/launch works without manual PATH surgery.
+        from ..core.config import ensure_user_bin_on_path
+        ensure_user_bin_on_path()
         root.title("PriorStates — shared memory & research journal for your AI agents")
         root.geometry("1140x710")
         root.minsize(940, 600)
