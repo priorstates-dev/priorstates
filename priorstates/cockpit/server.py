@@ -15,11 +15,10 @@ from __future__ import annotations
 import base64
 import json
 import os
+import queue
 import re
 import secrets
-import select
 import shutil
-import socket
 import struct
 import subprocess
 import sys
@@ -548,10 +547,16 @@ class Handler(BaseHTTPRequestHandler):
         if not ALLOW_TERMINAL:
             return self._err(403, "terminal disabled -- start the cockpit with PS_ALLOW_TERMINAL=1")
         sid = secrets.token_hex(12)
-        shell = os.environ.get("SHELL", "/bin/bash")
+        if os.name == "nt":
+            bridge = os.path.join(HERE, "ptybridge_win.py")
+            shell = (os.environ.get("PS_SHELL") or shutil.which("pwsh")
+                     or shutil.which("powershell") or os.environ.get("COMSPEC") or "cmd.exe")
+        else:
+            bridge = PTY_BRIDGE
+            shell = os.environ.get("SHELL", "/bin/bash")
         env = dict(os.environ, TERM="xterm-256color")
         try:
-            proc = subprocess.Popen([PS_PYTHON, PTY_BRIDGE, shell],
+            proc = subprocess.Popen([PS_PYTHON, bridge, shell],
                                     cwd=PROJECT_ROOT or HOME, env=env,
                                     stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
         except Exception as e:
@@ -573,29 +578,36 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("X-Accel-Buffering", "no")
         self.end_headers()
         self.close_connection = True  # SSE has no Content-Length; close when it ends
+        # Pump the child's PTY output on a thread (works on Windows too -- you
+        # can't select() on a pipe fd there). The SSE loop drains the queue and
+        # uses the queue timeout to emit heartbeats; a write failure means the
+        # browser hung up, so we stop and kill the shell.
+        q: "queue.Queue" = queue.Queue(maxsize=2048)
         out_fd = proc.stdout.fileno()
-        conn = self.connection
+
+        def pump():
+            while True:
+                try:
+                    data = os.read(out_fd, 65536)
+                except OSError:
+                    data = b""
+                q.put(data)
+                if not data:
+                    break
+
+        threading.Thread(target=pump, daemon=True).start()
         try:
             self.wfile.write(b":ok\n\n"); self.wfile.flush()
             while True:
-                r, _, _ = select.select([out_fd, conn], [], [], 25)
-                if conn in r:                       # client sent/closed -> peek for EOF
-                    try:
-                        if not conn.recv(1, socket.MSG_PEEK):
-                            break
-                    except Exception:
-                        break
-                if out_fd in r:
-                    try:
-                        data = os.read(out_fd, 65536)
-                    except OSError:
-                        data = b""
-                    if not data:
-                        break
-                    self.wfile.write(b"data: " + base64.b64encode(data) + b"\n\n")
-                    self.wfile.flush()
-                if not r:                           # heartbeat keeps proxies from idling out
-                    self.wfile.write(b":hb\n\n"); self.wfile.flush()
+                try:
+                    data = q.get(timeout=25)
+                except queue.Empty:
+                    self.wfile.write(b":hb\n\n"); self.wfile.flush()  # keep proxies alive
+                    continue
+                if not data:                        # child exited / pipe closed
+                    break
+                self.wfile.write(b"data: " + base64.b64encode(data) + b"\n\n")
+                self.wfile.flush()
         except (BrokenPipeError, ConnectionError, OSError):
             pass
         finally:
