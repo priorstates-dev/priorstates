@@ -42,6 +42,11 @@ priorstates agents install  # wire Claude / Codex / Gemini over MCP
 priorstates cockpit         # open the web cockpit → http://127.0.0.1:7700
 ```
 
+**On Windows, easiest of all:** download and run
+**[PriorStates-Windows-Setup.exe](https://github.com/zqin2012/priorstates/releases/latest/download/PriorStates-Windows-Setup.exe)**
+— it auto-installs Python if you don't have it, then installs PriorStates and adds
+Start Menu + Desktop shortcuts. Nothing else required.
+
 Native installers (`.deb` / macOS `.pkg` / Windows) and a source install are in
 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**. No model download is required — a
 built-in CPU hashing embedder works out of the box.

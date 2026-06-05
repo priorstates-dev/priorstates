@@ -21,23 +21,34 @@ Repository: <https://github.com/zqin2012/priorstates>
 | pip | `python3 -m pip --version` | `py -m pip --version` |
 | git *(Method B only)* | `git --version` | `git --version` |
 
-If Python >= 3.10 is missing, tell the human and stop -- don't silently install a
-system Python. On the commands below, use `python3` on Linux/macOS and `py` on
-Windows.
+If Python >= 3.10 is missing:
+- **Windows** -- don't worry about it: use the **Setup.exe** in Step 1, which
+  installs Python for you automatically.
+- **Linux / macOS** -- tell the human and stop; don't silently install a system
+  Python.
+
+On the commands below, use `python3` on Linux/macOS and `py` on Windows.
 
 ## Step 1 -- install the package (choose ONE method)
 
-### Method A -- recommended, installs straight from the repo (no clone)
+### Method A -- recommended
 
-Linux / macOS:
+**Windows -- use the Setup.exe (it installs Python for you, no prerequisites):**
+```powershell
+$exe = "$env:TEMP\PriorStates-Windows-Setup.exe"
+Invoke-WebRequest -UseBasicParsing https://github.com/zqin2012/priorstates/releases/latest/download/PriorStates-Windows-Setup.exe -OutFile $exe
+Start-Process -Wait $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORESTART'
+```
+This auto-installs Python 3.12 if none is found, installs PriorStates, runs
+`init`, and creates Start Menu + Desktop shortcuts. It does **not** wire the
+agents, so continue to **Step 2**. On Windows you can **skip Step 4** -- the
+shortcuts already exist. (If the human already has Python 3.10+ and prefers pip,
+use the Linux/macOS commands below with `py` instead of `python3`.)
+
+**Linux / macOS -- install straight from the repo (no clone):**
 ```bash
 python3 -m pip install --user --upgrade pip setuptools wheel
 python3 -m pip install --user --no-cache-dir "priorstates @ git+https://github.com/zqin2012/priorstates.git"
-```
-Windows (PowerShell):
-```powershell
-py -m pip install --user --upgrade pip setuptools wheel
-py -m pip install --user --no-cache-dir "priorstates @ git+https://github.com/zqin2012/priorstates.git"
 ```
 `--no-cache-dir` matters: the package version is static (`0.1.0`), so without it
 pip can reuse a **stale cached wheel** from an earlier commit and silently install
@@ -67,6 +78,13 @@ python3 -m priorstates init             # create ~/.priorstates/ + project .prio
 python3 -m priorstates agents install   # register the MCP server + pinned block
 ```
 `python3 -m priorstates ...` always works regardless of PATH (Windows: `py -m priorstates ...`).
+
+> **Windows, right after the Setup.exe:** the freshly installed Python may not be
+> on this shell's PATH yet. If `py` isn't found, resolve the interpreter by path:
+> ```powershell
+> $py = (Get-ChildItem "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe" -ErrorAction SilentlyContinue | Select-Object -First 1).FullName
+> & $py -m priorstates agents install   # init already ran inside the installer
+> ```
 
 ## Step 3 -- verify the install
 
