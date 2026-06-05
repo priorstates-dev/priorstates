@@ -45,25 +45,42 @@ def test_gui_constructs(tmp_path=None, monkeypatch=None):
     import importlib
     app = importlib.import_module("priorstates.gui.app")
 
-    # no workspace
+    # no project
     g0 = app.PriorStatesGUI(MagicMock())
-    assert hasattr(g0, "cfg") and g0.workspaces == []
+    assert hasattr(g0, "cfg") and g0.projects == []
 
-    # local workspace lifecycle
+    # local project lifecycle
     g = app.PriorStatesGUI(MagicMock(), project=str(ws))
-    assert g.workspace and g.workspace["kind"] == "local"
+    assert g.project and g.project["kind"] == "local"
     local = {"kind": "local", "path": str(ws)}
-    g.set_workspace(local)
+    g.set_project(local)
     g._rebuild_sidebar()
 
-    # remote workspace treated the same: add as a tab, select, persist, close
+    # area switching (orthogonal to project): sets $PRIORSTATES_AREA + state,
+    # which is what launched cockpit/agents inherit. Stub render_pinned so the
+    # test never writes into real agent config files.
+    import priorstates.memory.api as _mem_api
+    _real_render = _mem_api.render_pinned
+    _mem_api.render_pinned = lambda *a, **k: None
+    try:
+        assert g.area is None and "PRIORSTATES_AREA" not in os.environ
+        g.area_var.get = lambda: "strategy"
+        g._on_area_change()
+        assert g.area == "strategy" and os.environ.get("PRIORSTATES_AREA") == "strategy"
+        g.area_var.get = lambda: "(default)"
+        g._on_area_change()
+        assert g.area is None and "PRIORSTATES_AREA" not in os.environ
+    finally:
+        _mem_api.render_pinned = _real_render
+
+    # remote project treated the same: add as a tab, select, persist, close
     remote = {"kind": "remote", "host": "myhost", "proj": "~/research"}
-    g._add_workspace_entry(remote)              # adds + selects
-    assert g._ws_is_remote(g.workspace)
-    assert any(g._ws_is_remote(w) for w in g.workspaces)
-    g.select_workspace(local)                   # back to local
-    assert not g._ws_is_remote(g.workspace)
-    g.select_workspace(remote)                  # remote again (shows panel)
+    g._add_project_entry(remote)              # adds + selects
+    assert g._proj_is_remote(g.project)
+    assert any(g._proj_is_remote(w) for w in g.projects)
+    g.select_project(local)                   # back to local
+    assert not g._proj_is_remote(g.project)
+    g.select_project(remote)                  # remote again (shows panel)
 
     # launch bar: a click shells out the right thing per target/kind —
     #   CLI agent  → terminal `cd <dir>` (local) / `ssh -t host` (remote)
@@ -76,12 +93,12 @@ def test_gui_constructs(tmp_path=None, monkeypatch=None):
     _shutil.which = lambda b: "/usr/bin/" + b   # pretend every CLI/editor is on PATH
     g._terminal_argv = lambda inner: ["FAKE-TERM", inner]
     try:
-        g.select_workspace(local)
-        g._launch_target(local, "claude")       # cli → terminal in workspace dir
+        g.select_project(local)
+        g._launch_target(local, "claude")       # cli → terminal in project dir
         assert calls and "claude" in calls[-1][1] and str(ws) in calls[-1][1]
         g._launch_target(local, "code")         # gui editor → [code, path]
         assert calls[-1][0] == "code" and str(ws) in calls[-1]
-        g.select_workspace(remote)
+        g.select_project(remote)
         g._launch_target(remote, "codex")       # cli remote → ssh -t
         assert "ssh -t" in calls[-1][1] and "codex" in calls[-1][1]
         g._launch_target(remote, "code")        # editor remote → code --remote ssh-remote+host
@@ -110,10 +127,10 @@ def test_gui_constructs(tmp_path=None, monkeypatch=None):
         g._remote_cli_present("myhost"), set)
     g._rebuild_launchbar()                      # must not raise for either kind
 
-    g.close_workspace(remote)
-    assert not any(g._ws_is_remote(w) for w in g.workspaces)
-    g.close_workspace(local)
-    assert g.workspaces == []
+    g.close_project(remote)
+    assert not any(g._proj_is_remote(w) for w in g.projects)
+    g.close_project(local)
+    assert g.projects == []
 
 
 if __name__ == "__main__":

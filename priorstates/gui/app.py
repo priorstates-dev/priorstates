@@ -1,8 +1,8 @@
 """PriorStates desktop control panel.
 
 A stdlib-only (Tkinter) GUI that acts as the **launcher / control plane** — the
-things that need a native app: manage workspaces (local + remote SSH), launch
-agents (CLI) and editors/IDEs in a workspace, wire/unwire agents over MCP, and
+things that need a native app: manage projects (local + remote SSH), launch
+agents (CLI) and editors/IDEs in a project, wire/unwire agents over MCP, and
 open the web cockpit. Browsing and editing *content* (memory, journal, docs,
 mdlab) lives in the cockpit, which is the better medium for it. Slow operations
 (model download, cockpit) run off the UI thread. The Tk root is created only in
@@ -58,6 +58,9 @@ class _Tip:
         if self.tip:
             self.tip.destroy()
             self.tip = None
+
+
+_DEFAULT_AREA = "(default)"
 
 
 def _load(start=None):
@@ -134,7 +137,7 @@ class PriorStatesGUI:
         root.title("PriorStates — shared memory & research journal for your AI agents")
         root.geometry("1140x710")
         root.minsize(940, 600)
-        self._cockpits = {}      # {workspace: {proc, port, allow_open}} — one cockpit each
+        self._cockpits = {}      # {project: {proc, port, allow_open}} — one cockpit each
         self._connections = []
 
         self._apply_theme()
@@ -148,9 +151,26 @@ class PriorStatesGUI:
         ttk.Label(hin, text="shared memory & research journal for your AI agents",
                   style="Dim.TLabel").pack(side="left", padx=12)
 
+        # Area selector — a global "mode" (which named memory pack is mounted),
+        # orthogonal to the Project (folder/host) chosen in the sidebar. Lives in
+        # the header because you're in exactly one area at a time.
+        self._init_area()
+        areabox = ttk.Frame(header, style="Header.TFrame")
+        areabox.pack(side="right", padx=18)
+        ttk.Label(areabox, text="Area:", style="Dim.TLabel").pack(side="left", padx=(0, 6))
+        self.area_var = tk.StringVar(value=self.area or _DEFAULT_AREA)
+        self.area_combo = ttk.Combobox(areabox, textvariable=self.area_var, width=16,
+                                       values=self._area_choices())
+        self.area_combo.pack(side="left")
+        self.area_combo.bind("<<ComboboxSelected>>", self._on_area_change)
+        self.area_combo.bind("<Return>", self._on_area_change)
+        self._tip(self.area_combo, "Which named memory pack is mounted (core-dev, "
+                  "strategy, ops, audit…). Changes what your agents and the cockpit "
+                  "recall. Type a new name to create one.")
+
         self.status = tk.StringVar(value="ready")
 
-        # body: LEFT workspace tabs | RIGHT notebook for the selected workspace
+        # body: LEFT project list | RIGHT notebook for the selected project
         body = ttk.Frame(root, style="TFrame")
         body.pack(fill="both", expand=True)
         self.sidebar = ttk.Frame(body, style="Sidebar.TFrame", width=210)
@@ -159,12 +179,12 @@ class PriorStatesGUI:
         mainf = ttk.Frame(body, style="TFrame")
         mainf.pack(side="left", fill="both", expand=True)
 
-        # Workspaces — local OR remote — are entries in the left sidebar; the
+        # Projects — local OR remote — are entries in the left sidebar; the
         # right surface follows the selected one (local → notebook, remote →
         # cockpit panel). Resolve cfg BEFORE building tabs (they read self.cfg).
-        self.workspaces = self._initial_workspaces()
-        self.workspace = self.workspaces[0] if self.workspaces else None
-        self.cfg = _load(self._ws_local_path(self.workspace))
+        self.projects = self._initial_projects()
+        self.project = self.projects[0] if self.projects else None
+        self.cfg = _load(self._proj_local_path(self.project))
 
         self._mainf = mainf
         self._remote_bins = {}        # host -> set of agent keys present (None/absent = unknown)
@@ -178,7 +198,7 @@ class PriorStatesGUI:
 
         bar = ttk.Frame(root, style="Header.TFrame")
         bar.pack(fill="x", side="bottom")
-        # App-level actions: always visible, not tied to a workspace or tab.
+        # App-level actions: always visible, not tied to a project or tab.
         ub = ttk.Button(bar, text="Update", style="Foot.TButton", command=self.update_software)
         ub.pack(side="right", padx=(0, 12), pady=3)
         self._tip(ub, "Reinstall the latest PriorStates from GitHub (restart the app afterward).")
@@ -189,19 +209,19 @@ class PriorStatesGUI:
             side="left", fill="x", expand=True)
 
         self._rebuild_sidebar()
-        self._show_for_workspace()
-        if not self._ws_is_remote(self.workspace):
+        self._show_for_project()
+        if not self._proj_is_remote(self.project):
             self.refresh_all()
 
-    # ----- workspace model (local path OR remote host/proj) ------------ #
-    def _ws_key(self, w):
+    # ----- project model (local path OR remote host/proj) -------------- #
+    def _proj_key(self, w):
         if not w:
             return "(none)"
         if w.get("kind") == "remote":
             return "remote:" + w["host"] + ":" + (w.get("proj") or "")
         return w["path"]
 
-    def _ws_name(self, w):
+    def _proj_name(self, w):
         if not w:
             return "(none)"
         if w.get("kind") == "remote":
@@ -209,11 +229,65 @@ class PriorStatesGUI:
             return "⇆ " + w["host"] + tail
         return "\U0001F4C1 " + Path(w["path"]).name
 
-    def _ws_is_remote(self, w):
+    def _proj_is_remote(self, w):
         return bool(w) and w.get("kind") == "remote"
 
-    def _ws_local_path(self, w):
+    def _proj_local_path(self, w):
         return w["path"] if (w and w.get("kind") == "local") else None
+
+    # ----- area model (which named memory pack is mounted) -------------- #
+    def _init_area(self):
+        """Resolve the active area at startup: an explicit env wins, else the
+        last choice saved in gui_state. Sets $PRIORSTATES_AREA so the cfg loaded
+        next (and every subprocess we spawn) sees it."""
+        from ..core.config import current_area, safe_area
+        saved = None
+        try:
+            saved = self._gui_state().get("area")
+        except Exception:
+            pass
+        self.area = current_area() or safe_area(saved)
+        self._apply_area_env()
+
+    def _apply_area_env(self):
+        if self.area:
+            os.environ["PRIORSTATES_AREA"] = self.area
+        else:
+            os.environ.pop("PRIORSTATES_AREA", None)
+
+    def _area_choices(self):
+        from ..core.config import home_dir, list_areas
+        cur = {self.area} if self.area else set()
+        return [_DEFAULT_AREA] + sorted(set(list_areas(home_dir())) | cur)
+
+    def _on_area_change(self, _evt=None):
+        """Switch the mounted area: re-scope cfg, re-render pinned context, and
+        refresh — every cockpit/agent we launch afterward inherits the new area."""
+        from ..core.config import safe_area
+        raw = (self.area_var.get() or "").strip()
+        new = None if (not raw or raw == _DEFAULT_AREA) else safe_area(raw)
+        if new == self.area:
+            return
+        self.area = new
+        self._apply_area_env()
+        try:
+            import json
+            st = self._gui_state(); st["area"] = self.area or ""
+            self._gui_state_path().write_text(json.dumps(st, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        # re-scope the active project's cfg to the new area, re-render pinned
+        self.cfg = _load(self._proj_local_path(self.project))
+        try:
+            from ..memory import api as _mem
+            _mem.render_pinned(self.cfg)
+        except Exception:
+            pass
+        self.area_var.set(self.area or _DEFAULT_AREA)
+        self.area_combo.configure(values=self._area_choices())
+        self.set_status(f"area: {self.area or '(default)'} — agents & cockpit launched now will use it")
+        if not self._proj_is_remote(self.project):
+            self.refresh_all()
 
     def _build_remote_panel(self, parent):
         ttk = self.ttk
@@ -221,7 +295,7 @@ class PriorStatesGUI:
         self._remote_frame = f
         box = ttk.Frame(f, style="TFrame")
         box.pack(fill="both", expand=True, padx=34, pady=30)
-        ttk.Label(box, text="⇆  Remote workspace", style="Brand.TLabel").pack(anchor="w")
+        ttk.Label(box, text="⇆  Remote project", style="Brand.TLabel").pack(anchor="w")
         self.remote_target_var = self.tk.StringVar()
         ttk.Label(box, textvariable=self.remote_target_var,
                   style="TLabel", font=(self._pick_font(["DejaVu Sans Mono", "monospace"]), 11)).pack(
@@ -239,10 +313,10 @@ class PriorStatesGUI:
         ttk.Label(box, textvariable=self.remote_status_var, style="Dim.TLabel").pack(anchor="w", pady=(16, 0))
         return f
 
-    def _show_for_workspace(self):
+    def _show_for_project(self):
         self._rebuild_launchbar()
-        if self._ws_is_remote(self.workspace):
-            self._show_remote_panel(self.workspace)
+        if self._proj_is_remote(self.project):
+            self._show_remote_panel(self.project)
         else:
             self._show_local_notebook()
 
@@ -322,7 +396,7 @@ class PriorStatesGUI:
         editors connect from the LOCAL client (local presence) while terminal
         CLIs run on the server (ssh probe)."""
         local = self._local_present_keys()
-        if not self._ws_is_remote(w):
+        if not self._proj_is_remote(w):
             return local
         gui = {k for k, _, _, kind, _ in self._launch_targets() if kind == "gui" and k in local}
         remote = self._remote_cli_present(w["host"])
@@ -337,16 +411,16 @@ class PriorStatesGUI:
             return
         for c in bar.winfo_children():
             c.destroy()
-        w = self.workspace
+        w = self.project
         if not w:
             return
         present = self._present_keys(w)
-        wired = None if self._ws_is_remote(w) else self._wired_agents()
+        wired = None if self._proj_is_remote(w) else self._wired_agents()
         targets = self._launch_targets()
 
         # Primary action — the daily driver — sits first and prominent (local
         # workspaces; remote ones have a dedicated Open Cockpit in the panel).
-        if not self._ws_is_remote(w):
+        if not self._proj_is_remote(w):
             ck = ttk.Button(bar, text="🛰  Open Cockpit", style="Accent.TButton",
                             command=self.open_cockpit)
             ck.pack(side="left", padx=(2, 16), pady=3)
@@ -362,11 +436,11 @@ class PriorStatesGUI:
                 unwired = wa and wired is not None and key not in wired
                 txt = label + " ⚠" if unwired else label
                 b = ttk.Button(bar, text=txt, style="Agent.TButton",
-                               command=lambda k=key: self._launch_target(self.workspace, k))
+                               command=lambda k=key: self._launch_target(self.project, k))
                 b.pack(side="left", padx=3)
                 self._tip(b, ("⚠ PriorStates isn't wired into %s yet — click Install on the "
                               "Agents tab so it sees the memory + journal tools." % label)
-                          if unwired else "Open %s in this workspace." % label)
+                          if unwired else "Open %s in this project." % label)
             return True
 
         any_agent = add_group([t for t in targets if t[4]])
@@ -387,13 +461,16 @@ class PriorStatesGUI:
             self._launch_gui(w, binname, label)
 
     def _launch_cli(self, w, binname):
-        """Open a terminal running a CLI agent in the workspace dir, so the
+        """Open a terminal running a CLI agent in the project dir, so the
         nearest .priorstates/ resolves (local) or the remote project does (remote)."""
         import shlex
-        remote = self._ws_is_remote(w)
+        remote = self._proj_is_remote(w)
+        # SSH doesn't forward our env, so set the area inline; local terminals
+        # inherit $PRIORSTATES_AREA from this process.
+        area_pfx = ("PRIORSTATES_AREA=%s " % shlex.quote(self.area)) if getattr(self, "area", None) else ""
         if remote:
             host, proj = w["host"], w.get("proj", "")
-            rcmd = ((_remote_cd(proj) + " 2>/dev/null; ") if proj else "") + binname
+            rcmd = ((_remote_cd(proj) + " 2>/dev/null; ") if proj else "") + area_pfx + binname
             where = host + ((":" + proj) if proj else "")
         else:
             path = w["path"]
@@ -457,11 +534,11 @@ class PriorStatesGUI:
         return proj
 
     def _launch_gui(self, w, binname, label):
-        """Open an editor/IDE on the workspace folder. Remote uses VSCode-style
+        """Open an editor/IDE on the project folder. Remote uses VSCode-style
         `--remote ssh-remote+host <path>` (the client runs locally)."""
         import os
         import shutil
-        if self._ws_is_remote(w):
+        if self._proj_is_remote(w):
             host, proj = w["host"], w.get("proj", "")
             if not shutil.which(binname):
                 self.set_status(f"{label}: opening a remote folder needs the '{binname}' CLI on PATH")
@@ -503,21 +580,21 @@ class PriorStatesGUI:
         self._remote_frame.pack(fill="both", expand=True)
 
     def _remote_status_text(self, w):
-        e = getattr(self, "_cockpits", {}).get(self._ws_key(w))
+        e = getattr(self, "_cockpits", {}).get(self._proj_key(w))
         if e and e["proc"].poll() is None:
             return "connected — cockpit open in your browser"
         return "not connected — click Open Cockpit"
 
     def _disconnect_current(self):
-        e = getattr(self, "_cockpits", {}).get(self._ws_key(self.workspace))
+        e = getattr(self, "_cockpits", {}).get(self._proj_key(self.project))
         if e:
             try:
                 if e["proc"].poll() is None:
                     e["proc"].terminate()
             except Exception:
                 pass
-            self._cockpits.pop(self._ws_key(self.workspace), None)
-        if self._ws_is_remote(self.workspace):
+            self._cockpits.pop(self._proj_key(self.project), None)
+        if self._proj_is_remote(self.project):
             self.remote_status_var.set("not connected — click Open Cockpit")
         self.set_status("disconnected")
 
@@ -533,7 +610,7 @@ class PriorStatesGUI:
         except Exception:
             return {}
 
-    def _initial_workspace(self):
+    def _initial_project(self):
         # 0) an explicit --project, if it's a workspace
         if self._explicit_project and (Path(self._explicit_project) / ".priorstates").is_dir():
             return Path(self._explicit_project)
@@ -550,10 +627,10 @@ class PriorStatesGUI:
             return Path(last)
         return None
 
-    def _initial_workspaces(self):
+    def _initial_projects(self):
         st = self._gui_state()
         out = []
-        first = self._initial_workspace()      # explicit --project / cwd / last (local)
+        first = self._initial_project()      # explicit --project / cwd / last (local)
         if first:
             out.append({"kind": "local", "path": str(first)})
         for w in st.get("workspaces", []):
@@ -563,7 +640,7 @@ class PriorStatesGUI:
                 out.append({"kind": "local", "path": w})
         seen, uniq = set(), []
         for w in out:
-            k = self._ws_key(w)
+            k = self._proj_key(w)
             if k in seen:
                 continue
             if w.get("kind") == "local" and not Path(w["path"]).exists():
@@ -572,12 +649,14 @@ class PriorStatesGUI:
             uniq.append(w)
         return uniq
 
-    def _save_workspaces(self):
+    def _save_projects(self):
         import json
         st = self._gui_state()
-        st["workspaces"] = self.workspaces
-        if self.workspace and not self._ws_is_remote(self.workspace):
-            st["last_workspace"] = self.workspace["path"]
+        # NB: the on-disk keys stay "workspaces"/"last_workspace" for back-compat
+        # with state written before the project/area rename (don't orphan saved lists).
+        st["workspaces"] = self.projects
+        if self.project and not self._proj_is_remote(self.project):
+            st["last_workspace"] = self.project["path"]
         try:
             p = self._gui_state_path()
             p.parent.mkdir(parents=True, exist_ok=True)
@@ -600,52 +679,52 @@ class PriorStatesGUI:
             fill="x", padx=14, pady=(14, 6))
         lst = ttk.Frame(self.sidebar, style="Sidebar.TFrame")
         lst.pack(fill="both", expand=True)
-        for ws in self.workspaces:
-            active = self.workspace is not None and self._ws_key(ws) == self._ws_key(self.workspace)
+        for ws in self.projects:
+            active = self.project is not None and self._proj_key(ws) == self._proj_key(self.project)
             row = ttk.Frame(lst, style="Sidebar.TFrame")
             row.pack(fill="x", padx=6, pady=1)
-            ttk.Button(row, text=("▸ " if active else "   ") + self._ws_name(ws),
+            ttk.Button(row, text=("▸ " if active else "   ") + self._proj_name(ws),
                        style=("WsActive.TButton" if active else "Ws.TButton"),
-                       command=lambda p=ws: self.select_workspace(p)).pack(
+                       command=lambda p=ws: self.select_project(p)).pack(
                 side="left", fill="x", expand=True)
             ttk.Button(row, text="✕", width=2, style="Ws.TButton",
-                       command=lambda p=ws: self.close_workspace(p)).pack(side="right")
-        if not self.workspaces:
-            ttk.Label(lst, text="No workspace open.\nClick “+ Add workspace”.",
+                       command=lambda p=ws: self.close_project(p)).pack(side="right")
+        if not self.projects:
+            ttk.Label(lst, text="No project open.\nClick “+ Add project”.",
                       style="Dim.TLabel", justify="left").pack(padx=14, pady=10, anchor="w")
         act = ttk.Frame(self.sidebar, style="Sidebar.TFrame")
         act.pack(fill="x", side="bottom", padx=8, pady=10)
-        ttk.Button(act, text="+  Add workspace", command=self.add_workspace,
+        ttk.Button(act, text="+  Add project", command=self.add_project,
                    style="Ws.TButton").pack(fill="x", pady=2)
         ttk.Button(act, text="⇆  Connect remote…", command=self.connect_remote,
                    style="Ws.TButton").pack(fill="x", pady=2)
 
-    def select_workspace(self, w):
-        if self.workspace is None or self._ws_key(w) != self._ws_key(self.workspace):
-            self.set_workspace(w)
+    def select_project(self, w):
+        if self.project is None or self._proj_key(w) != self._proj_key(self.project):
+            self.set_project(w)
 
-    def _add_workspace_entry(self, entry, select=True):
-        if self._ws_key(entry) not in [self._ws_key(w) for w in self.workspaces]:
-            self.workspaces.append(entry)
+    def _add_project_entry(self, entry, select=True):
+        if self._proj_key(entry) not in [self._proj_key(w) for w in self.projects]:
+            self.projects.append(entry)
         if select:
-            self.set_workspace(entry)
+            self.set_project(entry)
         else:
-            self._save_workspaces()
+            self._save_projects()
             self._rebuild_sidebar()
 
-    def add_workspace(self):
+    def add_project(self):
         from tkinter import filedialog, messagebox
         d = filedialog.askdirectory(
-            title="Add a PriorStates workspace (project folder)",
-            initialdir=self._ws_local_path(self.workspace) or str(Path.home()),
+            title="Add a project (folder)",
+            initialdir=self._proj_local_path(self.project) or str(Path.home()),
             mustexist=True)
         if not d:
             return
         p = Path(d)
         if not (p / ".priorstates").is_dir():
             if not messagebox.askyesno(
-                    "Initialize workspace?",
-                    f"{p}\n\nis not a PriorStates workspace yet. Create .priorstates/ here?"):
+                    "Initialize project?",
+                    f"{p}\n\nis not a PriorStates project yet. Create .priorstates/ here?"):
                 return
             from ..core.config import PROJECT_MARKER
             try:
@@ -657,10 +736,10 @@ class PriorStatesGUI:
             except OSError as e:
                 messagebox.showerror("PriorStates", f"Could not initialize:\n{e}")
                 return
-        self._add_workspace_entry({"kind": "local", "path": str(p)})
+        self._add_project_entry({"kind": "local", "path": str(p)})
 
-    def close_workspace(self, w):
-        key = self._ws_key(w)
+    def close_project(self, w):
+        key = self._proj_key(w)
         # stop its cockpit / connection
         e = getattr(self, "_cockpits", {}).get(key)
         if e:
@@ -670,16 +749,16 @@ class PriorStatesGUI:
             except Exception:
                 pass
             self._cockpits.pop(key, None)
-        self.workspaces = [x for x in self.workspaces if self._ws_key(x) != key]
-        if self.workspace is not None and self._ws_key(self.workspace) == key:
-            nxt = self.workspaces[0] if self.workspaces else None
-            self.workspace = nxt
-            self.cfg = _load(self._ws_local_path(nxt))
-            self._show_for_workspace()
-            if not self._ws_is_remote(nxt):
+        self.projects = [x for x in self.projects if self._proj_key(x) != key]
+        if self.project is not None and self._proj_key(self.project) == key:
+            nxt = self.projects[0] if self.projects else None
+            self.project = nxt
+            self.cfg = _load(self._proj_local_path(nxt))
+            self._show_for_project()
+            if not self._proj_is_remote(nxt):
                 self._refresh_combos()
                 self.refresh_all()
-        self._save_workspaces()
+        self._save_projects()
         self._rebuild_sidebar()
 
     def connect_remote(self):
@@ -688,7 +767,7 @@ class PriorStatesGUI:
         from tkinter import simpledialog
         last = self._gui_state().get("last_remote", "")
         target = simpledialog.askstring(
-            "Add a remote workspace",
+            "Add a remote project",
             "Run PriorStates on a server (VSCode-style). Enter:\n\n"
             "host:/project/path     (e.g.  ai2:~/research)\n"
             "or just  host          (server's default project)\n",
@@ -704,7 +783,7 @@ class PriorStatesGUI:
         if not host:
             return
         self._save_gui_kv("last_remote", target)
-        self._add_workspace_entry({"kind": "remote", "host": host, "proj": proj})
+        self._add_project_entry({"kind": "remote", "host": host, "proj": proj})
 
     def _launch_connect(self, w):
         """Start `priorstates connect host [proj]` (in a terminal if possible).
@@ -773,22 +852,22 @@ class PriorStatesGUI:
         except Exception:
             pass
 
-    def set_workspace(self, w):
-        self.workspace = w
-        if self._ws_key(w) not in [self._ws_key(x) for x in self.workspaces]:
-            self.workspaces.append(w)
-        self.cfg = _load(self._ws_local_path(w))
-        self._save_workspaces()
+    def set_project(self, w):
+        self.project = w
+        if self._proj_key(w) not in [self._proj_key(x) for x in self.projects]:
+            self.projects.append(w)
+        self.cfg = _load(self._proj_local_path(w))
+        self._save_projects()
         self._rebuild_launchbar()
-        if self._ws_is_remote(w):
+        if self._proj_is_remote(w):
             self._show_remote_panel(w)
-            self.set_status(f"remote workspace: {w['host']}"
+            self.set_status(f"remote project: {w['host']}"
                             + (f":{w['proj']}" if w.get('proj') else ""))
         else:
             self._show_local_notebook()
             self._refresh_combos()    # project config may differ per workspace
             self.refresh_all()
-            self.set_status(f"workspace: {w['path']}")
+            self.set_status(f"project: {w['path']}")
         self._rebuild_sidebar()       # update the active highlight
 
     # ----- theme ------------------------------------------------------- #
@@ -1073,7 +1152,7 @@ class PriorStatesGUI:
     def refresh_all(self):
         from ..core.embedder import get_embedder
         from ..agents import status as ag_status
-        self.cfg = _load(self._ws_local_path(self.workspace))
+        self.cfg = _load(self._proj_local_path(self.project))
         emb = get_embedder(self.cfg)
         self._emb_backend = getattr(emb, "backend", "?")
         try:
@@ -1138,7 +1217,7 @@ class PriorStatesGUI:
 
     def _first_available_agent(self):
         """An agent CLI that's present and (preferably) wired, for the live demo."""
-        present = self._present_keys(self.workspace)
+        present = self._present_keys(self.project)
         wired = self._wired_agents()
         order = ["claude", "codex", "gemini"]
         for k in order:
@@ -1158,7 +1237,7 @@ class PriorStatesGUI:
             self.root.clipboard_append(STARTER_PROMPT)
         except Exception:
             pass
-        self._launch_cli(self.workspace, {t[0]: t[2] for t in self._launch_targets()}[key])
+        self._launch_cli(self.project, {t[0]: t[2] for t in self._launch_targets()}[key])
         self.set_status(f"Starter prompt copied — paste it into {key.capitalize()} (just opened).")
 
     def load_examples(self):
@@ -1167,7 +1246,7 @@ class PriorStatesGUI:
         from ..core import share
         try:
             res = share.import_workspace(self.cfg, share.packaged_demo())
-            note = "Loaded the demo workspace: +%d memories" % res["memory_added"]
+            note = "Loaded the demo pack: +%d memories" % res["memory_added"]
             note += (", +%d journal entries." % res["journal_added"]) if res["journal_added"] \
                 else " (open a project folder to also load the demo journal)."
             self.set_status(note)
@@ -1347,26 +1426,26 @@ class PriorStatesGUI:
 
     # ----- cockpit / model -------------------------------------------- #
     def open_cockpit(self):
-        # One cockpit PER workspace. Remote workspaces run via `connect` (the
+        # One cockpit PER project. Remote projects run via `connect` (the
         # cockpit runs on the server); local ones run a local cockpit. Each on
         # its own port so they don't collide.
         from ..cli import _free_local_port
         cks = getattr(self, "_cockpits", None)
         if cks is None:
             cks = self._cockpits = {}
-        key = self._ws_key(self.workspace)
+        key = self._proj_key(self.project)
 
-        if self._ws_is_remote(self.workspace):
+        if self._proj_is_remote(self.project):
             e = cks.get(key)
             if e and e["proc"].poll() is None:
-                self.set_status(f"already connected to {self.workspace['host']} (see your browser)")
-                if self._ws_is_remote(self.workspace):
+                self.set_status(f"already connected to {self.project['host']} (see your browser)")
+                if self._proj_is_remote(self.project):
                     self.remote_status_var.set("connected — cockpit open in your browser")
                 return
-            p = self._launch_connect(self.workspace)
+            p = self._launch_connect(self.project)
             if p:
                 cks[key] = {"proc": p, "port": None, "allow_open": False}
-                self.set_status(f"connecting to {self.workspace['host']} … "
+                self.set_status(f"connecting to {self.project['host']} … "
                                 f"(terminal opened; browser opens when ready)")
                 self.remote_status_var.set("connecting…")
             return
@@ -1388,6 +1467,9 @@ class PriorStatesGUI:
         env.pop("PRIORSTATES_PROJECT_ROOT", None)
         if self.cfg.project_root:
             env["PRIORSTATES_PROJECT_ROOT"] = str(self.cfg.project_root)
+        env.pop("PRIORSTATES_AREA", None)
+        if self.area:                    # mount the selected area in the cockpit
+            env["PRIORSTATES_AREA"] = self.area
         env["PS_PORT"] = str(port)
         env["PS_HOST"] = "127.0.0.1"
         env["PS_PYTHON"] = sys.executable
@@ -1403,13 +1485,13 @@ class PriorStatesGUI:
         cks[key] = {"proc": proc, "port": port, "allow_open": want_open}
         self.root.after(900, lambda p=port: webbrowser.open(f"http://127.0.0.1:{p}/"))
         extra = " (open-in-editor on)" if want_open else ""
-        wsname = Path(key).name if self.workspace else key
+        wsname = Path(key).name if self.project else key
         self.set_status(f"cockpit for {wsname} on :{port}{extra}")
 
     def reindex(self):
         from ..memory import api as mem
         self.set_status("reindexing…")
-        self.run_bg(lambda: mem.reindex(_load(self._ws_local_path(self.workspace)), "all", verbose=False),
+        self.run_bg(lambda: mem.reindex(_load(self._proj_local_path(self.project)), "all", verbose=False),
                     lambda r: self.set_status(f"reindexed: {r}"))
 
     def download_model(self):
