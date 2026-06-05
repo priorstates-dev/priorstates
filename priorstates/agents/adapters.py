@@ -6,6 +6,8 @@ is rendered into. Adding a new agent = one entry here.
 """
 from __future__ import annotations
 
+import os
+import sys
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -24,6 +26,21 @@ class Adapter:
 
 def _h(p: str) -> Path:
     return Path.home() / p
+
+
+def _claude_desktop_config() -> Path:
+    """Claude Desktop's MCP config file (separate app from Claude Code)."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Claude" / "claude_desktop_config.json"
+    if os.name == "nt":
+        base = os.environ.get("APPDATA") or str(Path.home() / "AppData" / "Roaming")
+        return Path(base) / "Claude" / "claude_desktop_config.json"
+    # Linux (community builds): XDG config dir.
+    base = os.environ.get("XDG_CONFIG_HOME") or str(Path.home() / ".config")
+    return Path(base) / "Claude" / "claude_desktop_config.json"
+
+
+_CLAUDE_DESKTOP = _claude_desktop_config()
 
 
 ADAPTERS: dict[str, Adapter] = {
@@ -53,6 +70,18 @@ ADAPTERS: dict[str, Adapter] = {
         context_files=(_h(".gemini/GEMINI.md"),),
         home_marker=_h(".gemini"),
         project_context_name="GEMINI.md",
+    ),
+    # Claude Desktop — the desktop app (NOT Claude Code). Separate MCP config
+    # (%APPDATA%\Claude on Windows, ~/Library/Application Support/Claude on macOS).
+    # It reads no markdown context file, so MCP tools are the whole integration.
+    "claude_desktop": Adapter(
+        name="claude_desktop",
+        mcp_config=_CLAUDE_DESKTOP,
+        mcp_format="json",
+        mcp_key="mcpServers",
+        context_files=(),               # Claude Desktop has no CLAUDE.md surface
+        home_marker=_CLAUDE_DESKTOP.parent,   # the Claude app config dir
+        project_context_name="",        # no per-project context
     ),
     # Google Antigravity — agentic VSCode fork. MCP config lives under
     # ~/.gemini/antigravity/mcp_config.json; it reads project AGENTS.md. It also

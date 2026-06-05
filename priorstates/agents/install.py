@@ -162,7 +162,8 @@ def _resolve_agents(config, agents):
 
 def _agent_context_targets(config, a) -> list[Path]:
     targets = list(a.context_files)
-    if config.project_root:
+    # Some agents (e.g. Claude Desktop) read no markdown context -> MCP only.
+    if config.project_root and a.project_context_name:
         targets.append(config.project_root / a.project_context_name)
     return targets
 

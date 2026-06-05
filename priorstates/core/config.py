@@ -25,7 +25,7 @@ from pathlib import Path
 DEFAULT_OUTCOMES = ["winner", "decision", "gotcha", "bug", "loser", "inconclusive", "note"]
 DEFAULT_MEMORY_TYPES = ["user", "preference", "project", "reference", "note"]
 DEFAULT_MODEL = "bge-small-en-v1.5"
-DEFAULT_AGENTS = ["claude", "codex", "gemini", "antigravity"]
+DEFAULT_AGENTS = ["claude", "claude_desktop", "codex", "gemini", "antigravity"]
 PROJECT_MARKER = ".priorstates"
 
 
@@ -228,7 +228,10 @@ topic_label = "topic"
 outcomes = ["winner", "decision", "gotcha", "bug", "loser", "inconclusive", "note"]
 
 [agents]
-enabled = ["claude", "codex", "gemini", "antigravity"]
+# Which agents PriorStates wires its MCP server into. Defaults to every supported
+# agent (Claude Code, Claude Desktop, Codex, Gemini, Antigravity); uncomment to
+# restrict, e.g.  enabled = ["claude", "codex"]
+# enabled = ["claude", "claude_desktop", "codex", "gemini", "antigravity"]
 
 [backup]
 enabled = false

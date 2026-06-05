@@ -75,6 +75,14 @@ _MAC_APPS = {
     "cursor": "Cursor", "windsurf": "Windsurf", "antigravity": "Antigravity",
 }
 
+# Agent CLIs the GUI can install. Claude Code has a native installer (no Node);
+# Codex / Gemini are npm packages (need Node.js).
+AGENT_CLI_INSTALL = {
+    "claude": {"label": "Claude Code", "needs_node": False},
+    "codex":  {"label": "Codex CLI",  "needs_node": True, "npm": "@openai/codex"},
+    "gemini": {"label": "Gemini CLI", "needs_node": True, "npm": "@google/gemini-cli"},
+}
+
 
 def _remote_cd(proj: str) -> str:
     """A `cd` to `proj` on a remote shell that still expands a leading ~.
@@ -336,10 +344,10 @@ class PriorStatesGUI:
         any_agent = add_group([t for t in targets if t[4]])
         add_group([t for t in targets if not t[4]], lead_gap=any_agent)
         if not present:
-            ttk.Label(bar, text="no agent CLI or editor found on PATH",
+            ttk.Label(bar, text="no agent CLI or editor on PATH — optional; install one on the Agents tab",
                       style="LaunchHint.TLabel").pack(side="left", padx=4)
         elif not any_agent:
-            ttk.Label(bar, text="(no agent CLI found — install claude / codex / gemini)",
+            ttk.Label(bar, text="(agent CLIs are optional — install one on the Agents tab to launch from here)",
                       style="LaunchHint.TLabel").pack(side="left", padx=8)
 
     def _launch_target(self, w, key):
@@ -1149,6 +1157,22 @@ class PriorStatesGUI:
         self._tip(bu, "Remove PriorStates' MCP server + pinned block from your agents.")
         ttk.Button(btns, text="Refresh", command=self._refresh_agents).pack(side="left")
 
+        # Install agent CLIs (optional) — only needed to *launch* an agent from here;
+        # the shared memory works for Claude Desktop / IDE extensions without them.
+        cli = ttk.Frame(f); cli.pack(fill="x", padx=10, pady=(0, 10))
+        ttk.Label(cli, text="Install an agent CLI (optional — only to launch agents from PriorStates):",
+                  style="Dim.TLabel").pack(anchor="w", pady=(0, 4))
+        row = ttk.Frame(cli); row.pack(fill="x")
+        self._cli_install_btns = {}
+        for key in ("claude", "codex", "gemini"):
+            b = ttk.Button(row, command=lambda k=key: self.install_cli(k))
+            b.pack(side="left", padx=(0, 6))
+            self._tip(b, "Claude Code installs natively (no Node.js); Codex / Gemini are npm\n"
+                         "packages (need Node.js). After installing, reopen PriorStates and\n"
+                         "click 'Install (wire enabled agents)' so it sees the memory tools.")
+            self._cli_install_btns[key] = b
+        self._refresh_cli_install_btns()
+
     def _refresh_agents(self):
         from ..agents import status as ag_status
         lines = ["PriorStates exposes the same memory/journal/mdlab tools to each agent over MCP.",
@@ -1160,6 +1184,7 @@ class PriorStatesGUI:
         self.agents_text.delete("1.0", "end")
         self.agents_text.insert("1.0", "\n".join(lines))
         self.agents_text.config(state="disabled")
+        self._refresh_cli_install_btns()
 
     def agents_install(self):
         from ..agents.install import install
@@ -1169,6 +1194,70 @@ class PriorStatesGUI:
     def agents_uninstall(self):
         from ..agents.install import uninstall
         self.run_bg(lambda: uninstall(self.cfg), lambda r: (self.set_status("agents unwired"), self._refresh_agents()))
+
+    # ----- install agent CLIs ----------------------------------------- #
+    def _cli_install_cmd(self, key):
+        """Shell command (platform-appropriate) that installs the CLI, or None."""
+        win = os.name == "nt"
+        if key == "claude":            # native installer — no Node needed
+            if win:
+                return ('powershell -NoProfile -ExecutionPolicy Bypass '
+                        '-Command "irm https://claude.ai/install.ps1 | iex"')
+            return "curl -fsSL https://claude.ai/install.sh | bash"
+        npm = AGENT_CLI_INSTALL.get(key, {}).get("npm")
+        return ("npm install -g %s" % npm) if npm else None
+
+    def install_cli(self, key):
+        import shutil
+        from tkinter import messagebox
+        info = AGENT_CLI_INSTALL.get(key, {})
+        label = info.get("label", key)
+        if info.get("needs_node") and not shutil.which("npm"):
+            if os.name == "nt":
+                if messagebox.askyesno(
+                        f"{label} needs Node.js",
+                        f"{label} installs with npm, which needs Node.js (not found).\n\n"
+                        "Install Node.js now? When it finishes, reopen this window and "
+                        f"click Install {label} again."):
+                    self._run_install_console("winget install -e --id OpenJS.NodeJS.LTS", "Node.js")
+            else:
+                messagebox.showinfo(
+                    f"{label} needs Node.js",
+                    f"{label} needs Node.js + npm. Install Node from https://nodejs.org "
+                    f"(or your package manager), then click Install {label} again.")
+            return
+        cmd = self._cli_install_cmd(key)
+        if not cmd:
+            return
+        self._run_install_console(cmd, label)
+
+    def _run_install_console(self, cmd, label):
+        """Run an install command in a visible terminal window so the user sees
+        progress (and any elevation/consent prompts)."""
+        if os.name == "nt":
+            ok = self._spawn_windows_console(cmd)
+            self.set_status(f"installing {label} in a new window… reopen PriorStates when it finishes"
+                            if ok else f"could not open a console for {label}")
+            return
+        inner = cmd + ('; echo; read -p "[%s install finished — press Enter to close] "' % label)
+        term = self._terminal_argv(inner)
+        if not term:
+            self.set_status("no terminal emulator found to run the installer")
+            return
+        try:
+            subprocess.Popen(term)
+            self.set_status(f"installing {label} in a terminal… reopen PriorStates when it finishes")
+        except Exception as e:
+            self.set_status(f"install failed: {e}")
+
+    def _refresh_cli_install_btns(self):
+        import shutil
+        for key, b in getattr(self, "_cli_install_btns", {}).items():
+            label = AGENT_CLI_INSTALL[key]["label"]
+            if shutil.which(key):
+                b.config(text=f"{label} — installed", state="disabled")
+            else:
+                b.config(text=f"Install {label}", state="normal")
 
 
     # ----- cockpit / model -------------------------------------------- #
