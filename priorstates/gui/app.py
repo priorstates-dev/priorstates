@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import re
 import subprocess
+_CNW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # hide console flashes on Windows (pythonw)
 import sys
 import threading
 import webbrowser
@@ -305,7 +306,7 @@ class PriorStatesGUI:
             try:
                 out = subprocess.run(
                     ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=6", host, cmd],
-                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=14)
+                    capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=14, creationflags=_CNW)
                 found = set(out.stdout.split())
             except Exception:
                 cache.pop(host, None)           # couldn't probe → stay optimistic, retry later
@@ -416,7 +417,7 @@ class PriorStatesGUI:
             self.set_status("no terminal emulator found to launch " + binname)
             return
         try:
-            subprocess.Popen(term)
+            subprocess.Popen(term, creationflags=_CNW)
             self.set_status(f"launched {binname} in {where}")
         except Exception as e:
             self.set_status(f"launch failed: {e}")
@@ -428,7 +429,7 @@ class PriorStatesGUI:
         flags = getattr(subprocess, "CREATE_NEW_CONSOLE", 0)
         try:
             if shutil.which("wt"):           # Windows Terminal, if installed
-                subprocess.Popen(["wt", "cmd", "/k", cmdline])
+                subprocess.Popen(["wt", "cmd", "/k", cmdline], creationflags=_CNW)
             else:
                 subprocess.Popen("cmd /k " + cmdline, creationflags=flags)
             return True
@@ -446,7 +447,7 @@ class PriorStatesGUI:
             out = subprocess.run(
                 ["ssh", "-o", "BatchMode=yes", "-o", "ConnectTimeout=8", host,
                  _remote_cd(proj) + " >/dev/null 2>&1 && pwd"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=12)
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=12, creationflags=_CNW)
             p = ((out.stdout or "").strip().splitlines()[-1:] or [""])[0]
             if p.startswith("/"):
                 w["_proj_abs"] = p
@@ -484,7 +485,7 @@ class PriorStatesGUI:
         if os.name == "nt":
             argv = ["cmd", "/c"] + argv      # editor launchers are .cmd shims on Windows
         try:
-            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            subprocess.Popen(argv, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
             self.set_status(f"opened {where} in {label}")
         except Exception as e:
             self.set_status(f"open failed: {e}")
@@ -717,11 +718,11 @@ class PriorStatesGUI:
         term = self._terminal_argv(inner)
         if term:
             try:
-                return subprocess.Popen(term)
+                return subprocess.Popen(term, creationflags=_CNW)
             except Exception:
                 pass
         try:
-            p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace")
+            p = subprocess.Popen(args, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, encoding="utf-8", errors="replace", creationflags=_CNW)
         except Exception as e:
             self.set_status(f"connect failed: {e}")
             return None
@@ -1329,7 +1330,7 @@ class PriorStatesGUI:
             self.set_status("no terminal emulator found to run the installer")
             return
         try:
-            subprocess.Popen(term)
+            subprocess.Popen(term, creationflags=_CNW)
             self.set_status(f"installing {label} in a terminal… reopen PriorStates when it finishes")
         except Exception as e:
             self.set_status(f"install failed: {e}")
@@ -1395,7 +1396,7 @@ class PriorStatesGUI:
         if want_open:
             env["PS_ALLOW_OPEN"] = "1"
         try:
-            proc = subprocess.Popen([sys.executable, str(server)], env=env)
+            proc = subprocess.Popen([sys.executable, str(server)], env=env, creationflags=_CNW)
         except Exception as e:
             self.set_status(f"could not start cockpit: {e}")
             return
@@ -1471,7 +1472,7 @@ class PriorStatesGUI:
         self.set_status("Updating PriorStates from GitHub… (see console)")
 
         def go():
-            return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace")
+            return subprocess.run(cmd, capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=_CNW)
 
         def done(p):
             print(p.stdout or "", p.stderr or "")

@@ -21,6 +21,7 @@ import secrets
 import shutil
 import struct
 import subprocess
+_CNW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # hide console flashes on Windows (pythonw)
 import sys
 import tempfile
 import threading
@@ -338,7 +339,7 @@ def _engine(*args, cwd=None, timeout=60000):
     return subprocess.run([PS_PYTHON, "-m", "priorstates", *args],
                           cwd=cwd or (PROJECT_ROOT or HOME),
                           capture_output=True, text=True, encoding="utf-8",
-                          errors="replace", timeout=timeout / 1000.0)
+                          errors="replace", timeout=timeout / 1000.0, creationflags=_CNW)
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -576,7 +577,7 @@ class Handler(BaseHTTPRequestHandler):
         try:
             proc = subprocess.Popen([PS_PYTHON, bridge, shell],
                                     cwd=PROJECT_ROOT or HOME, env=env,
-                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0)
+                                    stdin=subprocess.PIPE, stdout=subprocess.PIPE, bufsize=0, creationflags=_CNW)
         except Exception as e:
             return self._err(500, str(e))
         with TERMS_LOCK:

@@ -5,6 +5,7 @@ import argparse
 import json
 import os
 import subprocess
+_CNW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # hide console flashes on Windows (pythonw)
 import sys
 from pathlib import Path
 
@@ -369,9 +370,9 @@ def _bootstrap_remote(host: str, ssh: list[str]) -> str | None:
     tar = subprocess.Popen(
         ["tar", "czf", "-", "-C", str(pkg.parent),
          "--exclude=__pycache__", "--exclude=*.pyc", "--exclude=*.psmem", pkg.name],
-        stdout=subprocess.PIPE)
+        stdout=subprocess.PIPE, creationflags=_CNW)
     rc = subprocess.run(ssh + [host, f"rm -rf ~/{remote_dir}/priorstates && mkdir -p ~/{remote_dir} "
-                               f"&& tar xzf - -C ~/{remote_dir}"], stdin=tar.stdout).returncode
+                               f"&& tar xzf - -C ~/{remote_dir}"], stdin=tar.stdout, creationflags=_CNW).returncode
     tar.stdout.close()
     if rc != 0:
         print("  could not copy the package to the remote.", file=sys.stderr)
@@ -379,11 +380,11 @@ def _bootstrap_remote(host: str, ssh: list[str]) -> str | None:
     # ensure numpy (the one hard dependency) on the remote
     print("ensuring numpy on the remote …")
     subprocess.run(ssh + [host, "sh -lc 'python3 -c \"import numpy\" 2>/dev/null || "
-                          "python3 -m pip install --user -q numpy'"])
+                          "python3 -m pip install --user -q numpy'"], creationflags=_CNW)
     runner = f"PYTHONPATH=$HOME/{remote_dir} python3 -m priorstates"
     # verify it imports there
     chk = subprocess.run(ssh + [host, f"sh -lc 'PYTHONPATH=$HOME/{remote_dir} "
-                                f"python3 -c \"import priorstates\"'"]).returncode
+                                f"python3 -c \"import priorstates\"'"], creationflags=_CNW).returncode
     if chk != 0:
         print("  shipped, but it still won't import on the remote (python3/numpy issue).",
               file=sys.stderr)
@@ -490,7 +491,7 @@ def cmd_connect(args):
     probe = subprocess.run(
         SSH + [host, "sh -lc 'command -v priorstates >/dev/null 2>&1 && echo OK || "
                "(python3 -c \"import priorstates\" >/dev/null 2>&1 && echo MOD || echo MISSING)'"],
-        text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE)
+        text=True, encoding="utf-8", errors="replace", stdout=subprocess.PIPE, creationflags=_CNW)
     if probe.returncode != 0:
         print(f"cannot ssh to {host} (auth/network failed).", file=sys.stderr)
         sys.exit(1)
@@ -512,7 +513,7 @@ def cmd_connect(args):
         b64 = base64.b64encode(code.encode()).decode()
         rp = subprocess.run(
             SSH + [host, f"python3 -c \"import base64;exec(base64.b64decode('{b64}').decode())\""],
-            capture_output=True, text=True, encoding="utf-8", errors="replace")
+            capture_output=True, text=True, encoding="utf-8", errors="replace", creationflags=_CNW)
         out = (rp.stdout or "").strip()
         rport = int(out) if out.isdigit() else 7765
 
@@ -542,7 +543,7 @@ def cmd_connect(args):
         try:
             rp = subprocess.run(
                 SSH + [host, cd + " >/dev/null 2>&1 && pwd"],
-                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15)
+                capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=15, creationflags=_CNW)
             abspath = ((rp.stdout or "").strip().splitlines()[-1:] or [""])[0]
             if abspath.startswith("/"):
                 args.project = abspath
@@ -561,7 +562,7 @@ def cmd_connect(args):
         print(f"(local port {args.port} busy — using {lport})")
     print(f"connecting to {host} … running PriorStates remotely; {url} → {host}:{rport}")
     print("  (research env, data, model and mdlab code all run on the server)")
-    ssh = subprocess.Popen(SSH + ["-tt", "-L", f"{lport}:127.0.0.1:{rport}", host, remote_cmd])
+    ssh = subprocess.Popen(SSH + ["-tt", "-L", f"{lport}:127.0.0.1:{rport}", host, remote_cmd], creationflags=_CNW)
 
     # 4) Wait until the REMOTE cockpit answers through the tunnel, then open it.
     ready = False
@@ -635,7 +636,7 @@ def cmd_doctor(args):
         if cmd not in checked:
             try:
                 checked[cmd] = subprocess.run([cmd, "-c", "import mcp"],
-                                              capture_output=True, timeout=20).returncode == 0
+                                              capture_output=True, timeout=20, creationflags=_CNW).returncode == 0
             except Exception:
                 checked[cmd] = False
         if not checked[cmd]:
@@ -666,7 +667,7 @@ def _xdg_data_home() -> Path:
 
 def _xdg_desktop_dir() -> Path:
     try:
-        r = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5)
+        r = subprocess.run(["xdg-user-dir", "DESKTOP"], capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=5, creationflags=_CNW)
         if r.returncode == 0 and r.stdout.strip():
             return Path(r.stdout.strip())
     except Exception:
@@ -702,13 +703,13 @@ def _rasterize_svg(svg: Path, png: Path, size: int) -> bool:
     png.parent.mkdir(parents=True, exist_ok=True)
     if _which("rsvg-convert"):
         subprocess.run(["rsvg-convert", "-w", str(size), "-h", str(size), str(svg), "-o", str(png)],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
         if png.exists():
             return True
     if _which("inkscape"):
         subprocess.run(["inkscape", str(svg), "--export-type=png", "-w", str(size),
                         "-h", str(size), "-o", str(png)],
-                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
         if png.exists():
             return True
     try:
@@ -743,7 +744,7 @@ def _refresh_icon_cache(base: Path):
     for tool in ("gtk-update-icon-cache", "gtk4-update-icon-cache"):
         if _which(tool):
             subprocess.run([tool, "-f", "-t", "-q", str(base)], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
             break
 
 
@@ -759,7 +760,7 @@ def _run_powershell(script: str):
     return subprocess.run(
         ["powershell", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
          "-Command", script],
-        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30)
+        capture_output=True, text=True, encoding="utf-8", errors="replace", timeout=30, creationflags=_CNW)
 
 
 def cmd_install_launcher_windows(args):
@@ -843,7 +844,7 @@ def cmd_install_launcher(args):
                 pass
         if _which("update-desktop-database"):
             subprocess.run(["update-desktop-database", str(apps)], check=False,
-                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
         _refresh_icon_cache(icons["base"])
         print("removed:", removed or "(nothing to remove)")
         return
@@ -858,7 +859,7 @@ def cmd_install_launcher(args):
     desktop_file.chmod(0o755)
     if _which("update-desktop-database"):
         subprocess.run(["update-desktop-database", str(apps)], check=False,
-                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
     _refresh_icon_cache(icons["base"])
     print(f"installed launcher → {desktop_file}")
     print(f"icon (themed 'priorstates') → {icons['svg']}"
@@ -871,7 +872,7 @@ def cmd_install_launcher(args):
         # GNOME/Nautilus require the .desktop on the Desktop to be marked trusted.
         if _which("gio"):
             subprocess.run(["gio", "set", str(desk_copy), "metadata::trusted", "true"],
-                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+                           check=False, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, creationflags=_CNW)
         print(f"desktop icon      → {desk_copy}")
 
     print("\nSearch your application menu for 'PriorStates'. If it doesn't appear")
