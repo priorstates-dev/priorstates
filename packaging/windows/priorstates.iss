@@ -45,31 +45,31 @@ Name: "wireagents"; Description: "&Connect PriorStates to my AI agents (Claude /
 
 [Files]
 Source: "..\..\build\windows\{#Wheel}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "launcher\PriorStates.vbs";        DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
-Name: "{group}\PriorStates";        Filename: "{sys}\wscript.exe"; Parameters: """{app}\PriorStates.vbs"""; Comment: "PriorStates desktop GUI"
-Name: "{group}\PriorStates Cockpit (web)"; Filename: "{cmd}";     Parameters: "/k py -3 -m priorstates cockpit || python -m priorstates cockpit"; Comment: "Run the web cockpit"
+; pythonw.exe (no console) -m priorstates gui, pinned to the install interpreter.
+Name: "{group}\PriorStates";        Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; Comment: "PriorStates desktop GUI"
+Name: "{group}\PriorStates Cockpit (web)"; Filename: "{cmd}";     Parameters: "{code:CockpitParams}"; Comment: "Run the web cockpit"
 Name: "{group}\Uninstall PriorStates"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\PriorStates";  Filename: "{sys}\wscript.exe"; Parameters: """{app}\PriorStates.vbs"""; Tasks: desktopicon
+Name: "{autodesktop}\PriorStates";  Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; Tasks: desktopicon
 
 [Run]
 ; Install the bundled wheel into the user's Python, then initialize data dirs.
-Filename: "{code:GetPy}"; Parameters: "{code:PipInstallArgs}"; \
+Filename: "{code:GetPyExe}"; Parameters: "{code:PipInstallArgs}"; \
   StatusMsg: "Installing PriorStates into your Python..."; Flags: runhidden waituntilterminated
-Filename: "{code:GetPy}"; Parameters: "{code:InitArgs}"; \
+Filename: "{code:GetPyExe}"; Parameters: "{code:InitArgs}"; \
   StatusMsg: "Initializing PriorStates..."; Flags: runhidden waituntilterminated
 ; Optional: install the MCP runtime + register it into any Claude / Codex / Gemini
 ; so wired agents actually get the PriorStates tools.
-Filename: "{code:GetPy}"; Parameters: "{code:McpInstallArgs}"; \
+Filename: "{code:GetPyExe}"; Parameters: "{code:McpInstallArgs}"; \
   StatusMsg: "Installing MCP support..."; Flags: runhidden waituntilterminated; Tasks: wireagents
-Filename: "{code:GetPy}"; Parameters: "{code:AgentsArgs}"; \
+Filename: "{code:GetPyExe}"; Parameters: "{code:AgentsArgs}"; \
   StatusMsg: "Connecting your AI agents over MCP..."; Flags: runhidden waituntilterminated; Tasks: wireagents
-Filename: "{sys}\wscript.exe"; Parameters: """{app}\PriorStates.vbs"""; \
+Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; \
   Description: "Launch PriorStates now"; Flags: postinstall nowait skipifsilent
 
 [UninstallRun]
-Filename: "{code:GetPy}"; Parameters: "{code:UninstallArgs}"; Flags: runhidden; RunOnceId: "PipUninstall"
+Filename: "{code:GetPyExe}"; Parameters: "{code:UninstallArgs}"; Flags: runhidden; RunOnceId: "PipUninstall"
 
 [Code]
 const
@@ -78,6 +78,8 @@ const
 
 var
   PyCmd: String;
+  PyExe: String;    { absolute python.exe of the install interpreter }
+  PyExeW: String;   { absolute pythonw.exe (no console); falls back to PyExe }
   DownloadPage: TDownloadWizardPage;
 
 { Find a usable Python (>=3.10) on PATH. Prefers the 'py' launcher. '' if none. }
@@ -132,30 +134,92 @@ begin
   if GetPy('') = 'py' then Result := '-3 ' else Result := '';
 end;
 
+{ Resolve PyCmd ('py' / 'python' / an abs path) to the ABSOLUTE interpreter, so
+  shortcuts launch the very Python we installed into -- not a floating `pyw -3`
+  that drifts to a newer/Store Python the user adds later (which wouldn't have
+  PriorStates or its `mcp` package, breaking the GUI and the MCP server). }
+procedure ResolveAbsPython();
+var
+  probe, outp, exe, params: String;
+  lines: TArrayOfString;
+  rc, sp: Integer;
+begin
+  if PyExe <> '' then exit;
+  probe := ExpandConstant('{tmp}\ps_probe.py');
+  outp  := ExpandConstant('{tmp}\ps_pyexe.txt');
+  { a file-based probe avoids any quoting of the python expression }
+  SaveStringToFile(probe,
+    'import sys' + #13#10 + 'open(r"' + outp + '","w").write(sys.executable)' + #13#10, False);
+  sp := Pos(' ', PyCmd);
+  if sp > 0 then
+  begin
+    exe := Copy(PyCmd, 1, sp - 1);
+    params := Copy(PyCmd, sp + 1, Length(PyCmd)) + ' "' + probe + '"';
+  end
+  else
+  begin
+    exe := PyCmd;
+    params := '"' + probe + '"';
+  end;
+  if Exec(exe, params, '', SW_HIDE, ewWaitUntilTerminated, rc) and (rc = 0)
+     and LoadStringsFromFile(outp, lines) and (GetArrayLength(lines) > 0) then
+    PyExe := Trim(lines[0]);
+  if (PyExe = '') and FileExists(PyCmd) then
+    PyExe := PyCmd;
+  if PyExe <> '' then
+  begin
+    PyExeW := ExtractFilePath(PyExe) + 'pythonw.exe';
+    if not FileExists(PyExeW) then PyExeW := PyExe;
+  end;
+end;
+
+function GetPyExe(Param: String): String;
+begin
+  if PyExe = '' then
+  begin
+    if PyCmd = '' then PyCmd := DetectPy();
+    ResolveAbsPython();
+  end;
+  if PyExe <> '' then Result := PyExe else Result := GetPy('');
+end;
+
+function GetPyExeW(Param: String): String;
+begin
+  GetPyExe('');
+  if PyExeW <> '' then Result := PyExeW else Result := GetPyExe('');
+end;
+
+function CockpitParams(Param: String): String;
+begin
+  Result := '/k "' + GetPyExe('') + '" -m priorstates cockpit';
+end;
+
+{ All install steps run with the resolved ABSOLUTE python (GetPyExe), so pip
+  installs into exactly the interpreter the shortcuts launch -- no '-3' selector. }
 function PipInstallArgs(Param: String): String;
 begin
-  Result := PyPrefix + '-m pip install --user --upgrade --force-reinstall "' +
+  Result := '-m pip install --user --upgrade --force-reinstall "' +
             ExpandConstant('{app}\{#Wheel}') + '"';
 end;
 
 function InitArgs(Param: String): String;
 begin
-  Result := PyPrefix + '-m priorstates init';
+  Result := '-m priorstates init';
 end;
 
 function McpInstallArgs(Param: String): String;
 begin
-  Result := PyPrefix + '-m pip install --user mcp';
+  Result := '-m pip install --user mcp';
 end;
 
 function AgentsArgs(Param: String): String;
 begin
-  Result := PyPrefix + '-m priorstates agents install';
+  Result := '-m priorstates agents install';
 end;
 
 function UninstallArgs(Param: String): String;
 begin
-  Result := PyPrefix + '-m pip uninstall -y priorstates';
+  Result := '-m pip uninstall -y priorstates';
 end;
 
 procedure InitializeWizard();
@@ -225,5 +289,7 @@ begin
   Result := '';
   if not EnsurePython(Result) then
     { Non-empty Result aborts the install and is shown to the user. }
-    ;
+    exit;
+  { Pin every shortcut to this exact interpreter (not a floating launcher). }
+  ResolveAbsPython();
 end;
