@@ -358,6 +358,16 @@ def cmd_pack(args):
         print(f"unpublished {cid} from {hub}")
 
 
+def cmd_relay(args):
+    from . import relay
+    def _ready(hub, toolnames):
+        print(f"relay connected → {hub}")
+        print(f"serving {len(toolnames)} tool(s) ({'read+write' if args.allow_write else 'recall-only'}): "
+              f"{', '.join(toolnames)}")
+        print("web/mobile agents pointed at this hub can now reach this machine's memory. Ctrl-C to stop.")
+    relay.serve(getattr(args, "hub", None), allow_write=args.allow_write, on_ready=_ready)
+
+
 def cmd_areas(args):
     """List named areas and show which one is active."""
     from .core import config as _cfg
@@ -1104,6 +1114,14 @@ def build_parser():
 
     par = sub.add_parser("areas", help="list named areas (core-dev, strategy, …) and the active one")
     par.set_defaults(func=cmd_areas)
+
+    prl = sub.add_parser("relay", help="serve this machine's memory to web/mobile agents via the hub")
+    prls = prl.add_subparsers(dest="action", required=True)
+    prc = prls.add_parser("connect", help="dial the hub and answer relayed tool calls (Ctrl-C to stop)")
+    prc.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
+    prc.add_argument("--allow-write", action="store_true",
+                     help="also expose memory_add/journal_add (default: recall-only)")
+    prl.set_defaults(func=cmd_relay)
 
     pid = sub.add_parser("identity", help="manage your publisher signing identity")
     pids = pid.add_subparsers(dest="action", required=False)
