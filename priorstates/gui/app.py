@@ -1192,9 +1192,32 @@ class PriorStatesGUI:
         self._refresh_cli_install_btns()
 
     def agents_install(self):
-        from ..agents.install import install
-        self.set_status("wiring agents…")
-        self.run_bg(lambda: install(self.cfg), lambda r: (self.set_status("agents wired"), self._refresh_agents()))
+        from ..agents.install import install, mcp_importable
+
+        def work():
+            # The MCP server is launched with THIS interpreter (sys.executable). If
+            # `mcp` isn't installed here, agents register but the server can't start
+            # ("Disconnected"). Install it into this very Python before wiring.
+            if not mcp_importable():
+                cmd = [sys.executable, "-m", "pip", "install", "mcp"]
+                if sys.prefix == sys.base_prefix:      # not a venv → user install
+                    cmd.insert(4, "--user")
+                try:
+                    subprocess.run(cmd, check=False,
+                                   creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                                   timeout=180)
+                except Exception:
+                    pass
+            return install(self.cfg)
+
+        self.set_status("wiring agents (installing MCP support if needed)…")
+
+        def done(_r):
+            self._refresh_agents()
+            self.set_status("agents wired — restart your agent to load the tools"
+                            if mcp_importable() else
+                            "agents wired, but the MCP package is still missing — see console")
+        self.run_bg(work, done)
 
     def agents_uninstall(self):
         from ..agents.install import uninstall
