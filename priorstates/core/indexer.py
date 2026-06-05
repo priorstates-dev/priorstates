@@ -181,7 +181,10 @@ def build_binary(records: list[MemoryRecord], embeddings: np.ndarray, out_path: 
         f.write(buf)
         f.flush()
         os.fsync(f.fileno())
-    os.rename(tmp, out_path)
+    # os.replace atomically overwrites an existing destination on BOTH Windows and
+    # POSIX; os.rename raises FileExistsError on Windows when out_path exists
+    # (breaks every reindex/import after the first on Windows).
+    os.replace(tmp, out_path)
     return {"n_entries": n, "total_bytes": total_size, "out_path": str(out_path)}
 
 

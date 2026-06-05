@@ -534,10 +534,18 @@ class Handler(BaseHTTPRequestHandler):
         t = os.path.abspath(target) if target else PROJECT_ROOT
         if not t or not under_root(t):
             return self._err(403, "path outside workspace")
+        argv = [ed["bin"], t]
+        kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
+              "stdin": subprocess.DEVNULL}
+        if os.name == "nt":
+            # code/cursor/etc. are .cmd shims that CreateProcess can't launch
+            # directly -- run them through cmd, same as the desktop GUI does.
+            argv = ["cmd", "/c"] + argv
+            kw["creationflags"] = getattr(subprocess, "CREATE_NO_WINDOW", 0)
+        else:
+            kw["start_new_session"] = True
         try:
-            subprocess.Popen([ed["bin"], t], stdout=subprocess.DEVNULL,
-                             stderr=subprocess.DEVNULL, stdin=subprocess.DEVNULL,
-                             start_new_session=True)
+            subprocess.Popen(argv, **kw)
         except Exception as e:
             return self._err(500, str(e))
         self._json({"ok": True, "app": app, "path": t})
