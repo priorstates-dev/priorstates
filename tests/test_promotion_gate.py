@@ -171,6 +171,47 @@ def test_publish_refuses_empty_selection(tmp_path, monkeypatch):
     assert ei.value.code == 2
 
 
+def test_unpublish_uses_saved_token(tmp_path, monkeypatch):
+    """`workspace unpublish <id>` sends a token-authed DELETE and forgets it."""
+    import argparse
+    import json
+    import urllib.request
+
+    from priorstates import cli
+
+    cfg = _cfg(tmp_path)
+    (cfg.home / "published.json").write_text(json.dumps({
+        "abc123": {"url": "http://fake-hub/w/abc123.psworkspace", "token": "edit-tok", "name": "x"}}))
+    monkeypatch.setattr(cli, "load_config", lambda *a, **k: cfg)
+
+    seen = {}
+
+    class _Resp:
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+        def read(self): return b"{}"
+
+    def fake_urlopen(req, timeout=0):
+        seen["method"] = req.get_method()
+        seen["url"] = req.full_url
+        seen["token"] = req.get_header("X-edit-token")
+        return _Resp()
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    # accept a full URL too — should resolve to the bare id
+    ns = argparse.Namespace(action="unpublish", id="http://fake-hub/w/abc123.psworkspace",
+                            token=None, hub="http://fake-hub/w")
+    cli.cmd_workspace(ns)
+
+    assert seen["method"] == "DELETE"
+    assert seen["url"] == "http://fake-hub/w/abc123"
+    assert seen["token"] == "edit-tok"
+    # token forgotten after a successful unpublish
+    reg = json.loads((cfg.home / "published.json").read_text())
+    assert "abc123" not in reg
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))

@@ -291,6 +291,35 @@ def cmd_workspace(args):
         if res.get("listed"):
             print("listed in the hub directory → https://priorstates.com/browse.html")
         print(f"(edit token saved to {pubf} — keep it to delete the bundle later)")
+    elif args.action == "unpublish":
+        import json
+        import os
+        import urllib.error
+        import urllib.request
+        hub = (args.hub or os.environ.get("PRIORSTATES_HUB") or "https://priorstates.com/w").rstrip("/")
+        # resolve id (accept a bare id or a full .psworkspace URL) + edit token
+        ref = args.id.rstrip("/").rsplit("/", 1)[-1]
+        cid = ref[:-len(".psworkspace")] if ref.endswith(".psworkspace") else ref
+        pubf = cfg.home / "published.json"
+        try:
+            reg = json.loads(pubf.read_text(encoding="utf-8")) if pubf.exists() else {}
+        except Exception:
+            reg = {}
+        token = args.token or (reg.get(cid) or {}).get("token")
+        if not token:
+            print(f"no edit token for {cid!r} (not in {pubf}); pass --token <token>.",
+                  file=sys.stderr); sys.exit(2)
+        req = urllib.request.Request(f"{hub}/{cid}", method="DELETE",
+                                     headers={"X-Edit-Token": token})
+        try:
+            with urllib.request.urlopen(req, timeout=30) as r:
+                r.read()
+        except urllib.error.HTTPError as e:
+            print(f"unpublish failed ({e.code}): {e.read().decode('utf-8', 'replace')}", file=sys.stderr)
+            sys.exit(1)
+        if cid in reg:
+            del reg[cid]; pubf.write_text(json.dumps(reg, indent=2), encoding="utf-8")
+        print(f"unpublished {cid} from {hub}")
 
 
 # --------------------------------------------------------------------------- #
@@ -980,6 +1009,10 @@ def build_parser():
                       help="publish only memories of this type; repeatable")
     wpub.add_argument("--list", action="store_true", help="list it in the public hub directory (default: unlisted private link)")
     wpub.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
+    wun = pws.add_parser("unpublish", help="delete a published workspace from the hub (uses its saved edit token)")
+    wun.add_argument("id", help="the workspace id (or its .psworkspace URL)")
+    wun.add_argument("--token", help="edit token (default: looked up in ~/.priorstates/published.json)")
+    wun.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
     pw.set_defaults(func=cmd_workspace)
 
     pl = sub.add_parser("mdlab", help="run runnable-Markdown files")
