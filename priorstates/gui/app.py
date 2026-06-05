@@ -1231,10 +1231,26 @@ class PriorStatesGUI:
                     f"{label} needs Node.js + npm. Install Node from https://nodejs.org "
                     f"(or your package manager), then click Install {label} again.")
             return
+        if os.name == "nt" and info.get("npm"):
+            self._ensure_ps_execution_policy()   # so npm's codex.ps1 shim can run
         cmd = self._cli_install_cmd(key)
         if not cmd:
             return
         self._run_install_console(cmd, label)
+
+    def _ensure_ps_execution_policy(self):
+        """npm's PowerShell shims (e.g. codex.ps1) won't run under the default
+        Restricted/Undefined policy. Set RemoteSigned for the current user if it's
+        currently restrictive — scoped, no admin, still blocks unsigned downloads."""
+        try:
+            subprocess.run(
+                ["powershell", "-NoProfile", "-Command",
+                 "if ((Get-ExecutionPolicy -Scope CurrentUser) -in 'Restricted','Undefined','AllSigned')"
+                 " { Set-ExecutionPolicy -Scope CurrentUser RemoteSigned -Force }"],
+                creationflags=getattr(subprocess, "CREATE_NO_WINDOW", 0),
+                check=False, timeout=25)
+        except Exception:
+            pass
 
     def _run_install_console(self, cmd, label):
         """Run an install command in a visible terminal window so the user sees
