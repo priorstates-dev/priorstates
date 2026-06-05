@@ -48,6 +48,8 @@ def render_pinned_block(bin_paths: list[Path]) -> tuple[str, int]:
 def write_marked_block(target: Path, block: str, begin: str, end: str) -> str:
     """Insert/replace a marker-delimited block in a file, preserving the rest."""
     target = Path(target)
+    if target.is_dir():  # never treat a directory as a context file
+        return "skipped"
     block_re = re.compile(re.escape(begin) + r".*?" + re.escape(end), re.DOTALL)
     if not target.exists():
         target.parent.mkdir(parents=True, exist_ok=True)

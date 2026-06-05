@@ -130,7 +130,9 @@ def pinned_targets(config) -> list[Path]:
         if not a:
             continue
         targets.extend(a.context_files)
-        if config.project_root:
+        # empty project_context_name (e.g. claude_desktop) → no per-project file;
+        # joining "" would yield the project dir itself and crash write_block.
+        if config.project_root and a.project_context_name:
             targets.append(config.project_root / a.project_context_name)
     # de-dup, keep order
     seen, out = set(), []
