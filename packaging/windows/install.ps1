@@ -12,8 +12,9 @@
   powershell -ExecutionPolicy Bypass -File packaging\windows\install.ps1 -Extras -Model -Wire
 
 .NOTES
-  Requires Python >= 3.10 on PATH (or pass -Python). No Node.js needed --
-  the cockpit is pure Python.
+  Needs nothing pre-installed: if Python 3.10+ isn't found it auto-installs
+  Python 3.12 (per-user, no admin). No Node.js needed -- the cockpit is pure
+  Python. Pass -Python to force a specific interpreter.
 #>
 [CmdletBinding()]
 param(
@@ -28,15 +29,44 @@ $ErrorActionPreference = "Stop"
 # Repo root is two levels up from packaging\windows\.
 $Root = (Resolve-Path (Join-Path $PSScriptRoot "..\..")).Path
 
+# Python to fetch when none is present (per-user install, no admin needed).
+$PyDownloadUrl = "https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe"
+
 function Find-Python {
   if ($Python) { return $Python }
   # Prefer the py launcher (handles multiple versions); fall back to python.exe.
   if (Get-Command py -ErrorAction SilentlyContinue) { return "py -3" }
   if (Get-Command python -ErrorAction SilentlyContinue) { return "python" }
-  throw "Python 3.10+ not found. Install it from https://python.org (tick 'Add to PATH') and retry."
+  return $null
+}
+
+function Install-Python {
+  # Download the official installer and run it silently (per-user). Returns the
+  # absolute python.exe path, or $null on failure.
+  Write-Host "==> Python 3.10+ not found - installing Python 3.12 (per-user, no admin)"
+  $old = $ProgressPreference; $ProgressPreference = "SilentlyContinue"
+  $exe = Join-Path $env:TEMP "python-setup.exe"
+  try {
+    Invoke-WebRequest -UseBasicParsing $PyDownloadUrl -OutFile $exe
+  } catch {
+    $ProgressPreference = $old
+    throw "Could not download Python from $PyDownloadUrl : $($_.Exception.Message)"
+  }
+  $ProgressPreference = $old
+  Write-Host "    running the Python installer quietly..."
+  $p = Start-Process -FilePath $exe -Wait -PassThru -ArgumentList `
+    "/quiet","InstallAllUsers=0","PrependPath=1","Include_launcher=1","Include_pip=1","AssociateFiles=0","Shortcuts=0"
+  if ($p.ExitCode -ne 0) { throw "Python installer exited with code $($p.ExitCode)." }
+  # PATH isn't refreshed in this process; resolve the interpreter by absolute path.
+  $found = Get-ChildItem "$env:LOCALAPPDATA\Programs\Python\Python3*\python.exe" -ErrorAction SilentlyContinue |
+           Select-Object -First 1 -ExpandProperty FullName
+  if (-not $found) { throw "Python was installed but could not be located. Reboot and retry." }
+  Write-Host "    Python installed: $found"
+  return $found
 }
 
 $Py = Find-Python
+if (-not $Py) { $Py = Install-Python }
 Write-Host "==> using Python: $Py"
 # Invoke helper: `& $exe $args` where $Py may be "py -3".
 $PyParts = $Py.Split(" ")

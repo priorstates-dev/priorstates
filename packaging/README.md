@@ -8,7 +8,10 @@ Native packages so end users don't touch `pip`:
 | **macOS** | `PriorStates-<ver>.pkg` | macOS (needs `pkgbuild`) | `packaging/macos/build-pkg.sh` |
 | **macOS (alt)** | Homebrew formula | macOS (needs `brew`) | `brew install --build-from-source packaging/macos/priorstates.rb` |
 | **Windows** | `PriorStates-<ver>-Setup.exe` | Windows (needs Inno Setup 6) | `packaging\windows\build-installer.ps1` |
-| **Windows (no toolchain)** | pip + shortcuts | Windows (needs Python) | `packaging\windows\install.ps1` |
+| **Windows (no toolchain)** | pip + shortcuts | Windows | `packaging\windows\install.ps1` |
+
+The Windows `Setup.exe` and `install.ps1` need **nothing pre-installed**: if Python
+3.10+ isn't found they auto-install Python 3.12 (per-user, no admin) first.
 
 The cross-platform [`install.sh`](../install.sh) (pip-based) remains available for
 any OS with Python; on Windows use [`install.ps1`](windows/install.ps1).
@@ -84,8 +87,9 @@ packaging\windows\build-installer.ps1     # → build\windows\PriorStates-0.1.0-
 It builds the wheel, then compiles [`priorstates.iss`](windows/priorstates.iss) into a
 per-user installer (no admin). Double-clicking the `.exe`:
 
-- checks for Python 3.10+ on PATH (offers the download page if missing),
-- pip-installs the bundled wheel into the user's Python and runs `priorstates init`,
+- **auto-installs Python 3.12** (per-user, silently) if no Python 3.10+ is found --
+  so a fresh Windows machine needs nothing pre-installed,
+- pip-installs the bundled wheel into that Python and runs `priorstates init`,
 - adds **PriorStates** (desktop GUI, launched via `PriorStates.vbs` → `pyw -m priorstates
   gui`, no console window) and **PriorStates Cockpit** to the Start Menu, plus an
   optional Desktop shortcut.
