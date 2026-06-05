@@ -287,6 +287,13 @@ def load_config(start: Path | str | None = None,
     cfg = _apply(cfg, _load_toml(home / "config.toml"))
     if project_root and (project_root / PROJECT_MARKER / "config.toml").exists():
         cfg = _apply(cfg, _load_toml(project_root / PROJECT_MARKER / "config.toml"))
+    # plugin config providers (e.g. an enterprise edition applying org-managed
+    # config). No-op in the community edition; never let a plugin break config.
+    try:
+        from . import plugins
+        cfg = plugins.registry(cfg).apply_config(cfg)
+    except Exception:
+        pass
     return cfg
 
 
