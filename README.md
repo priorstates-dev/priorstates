@@ -33,7 +33,40 @@ The agent reads [`AGENT_INSTALL.md`](AGENT_INSTALL.md), installs the package, wi
 itself over MCP, and verifies with `priorstates doctor` — then restart it to load
 the new tools.
 
-**Prefer to do it yourself?**
+**Prefer to do it yourself?** Pick your platform:
+
+<details open>
+<summary><b>🐧 Linux (Debian / Ubuntu) — the <code>.deb</code> (recommended)</b></summary>
+
+Apt pulls in `python3` + `numpy`, and you get the desktop app, an icon, the
+`priorstates` CLI and man pages — nothing else to install:
+
+```bash
+curl -fSLO https://github.com/zqin2012/priorstates/releases/latest/download/priorstates_0.1.0_all.deb
+sudo apt install -y ./priorstates_0.1.0_all.deb   # resolves python3 (>= 3.10) + python3-numpy
+```
+
+Then just **open “PriorStates” from your application menu** (or run
+`priorstates-gui`). The desktop control panel does the rest — initialize your
+memory, wire Claude / Codex / Gemini over MCP, and launch the cockpit, all with a
+click. No further commands needed. (For agent integration it needs the MCP support
+package once — `pip3 install --user mcp`; the app flags it if it's missing.)
+
+`sudo apt remove priorstates` uninstalls. Re-running the same `apt install`
+upgrades in place.
+</details>
+
+<details>
+<summary><b>🪟 Windows — the one-click installer (easiest of all)</b></summary>
+
+Download and run
+**[PriorStates-Windows-Setup.exe](https://github.com/zqin2012/priorstates/releases/latest/download/PriorStates-Windows-Setup.exe)**
+— it auto-installs Python if you don't have it, then installs PriorStates and adds
+Start Menu + Desktop shortcuts. Nothing else required.
+</details>
+
+<details>
+<summary><b>🍎 macOS / any OS with Python 3.10+ — pip</b></summary>
 
 ```bash
 pip install --user --no-cache-dir "priorstates @ git+https://github.com/zqin2012/priorstates.git"
@@ -42,12 +75,11 @@ priorstates agents install  # wire Claude / Codex / Gemini over MCP
 priorstates cockpit         # open the web cockpit → http://127.0.0.1:7700
 ```
 
-**On Windows, easiest of all:** download and run
-**[PriorStates-Windows-Setup.exe](https://github.com/zqin2012/priorstates/releases/latest/download/PriorStates-Windows-Setup.exe)**
-— it auto-installs Python if you don't have it, then installs PriorStates and adds
-Start Menu + Desktop shortcuts. Nothing else required.
+macOS also has a native `.pkg` / Homebrew formula — see
+[docs/QUICKSTART.md](docs/QUICKSTART.md).
+</details>
 
-Native installers (`.deb` / macOS `.pkg` / Windows) and a source install are in
+Full install matrix (`.deb` / macOS `.pkg` / Windows / source) is in
 **[docs/QUICKSTART.md](docs/QUICKSTART.md)**. No model download is required — a
 built-in CPU hashing embedder works out of the box.
 
