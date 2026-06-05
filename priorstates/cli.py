@@ -141,7 +141,14 @@ def cmd_memory(args):
         body = args.body or sys.stdin.read()
         _print(mem.add_memory(cfg, name=args.name, type_str=args.type,
                               description=args.description or "", body=body,
-                              pinned=args.pin, scope=args.scope, overwrite=args.overwrite))
+                              pinned=args.pin, scope=args.scope, overwrite=args.overwrite,
+                              tags=getattr(args, "tag", None)))
+    elif args.action == "tag":
+        res = mem.tag_memory(cfg, args.name, args.tags, scope=args.scope, remove=args.remove)
+        if not res["changed"]:
+            print(f"no memory named {args.name!r} found", file=sys.stderr); sys.exit(1)
+        verb = "removed from" if args.remove else "on"
+        print(f"tags {verb} {args.name!r}: [{', '.join(res['tags'])}]")
     elif args.action == "search":
         rows = mem.search_memory(cfg, args.query, k=args.k, type_str=args.type, scope=args.scope)
         for r in rows:
@@ -199,8 +206,15 @@ def cmd_workspace(args):
     cfg = load_config()
     if args.action == "export":
         out = share.export_workspace(cfg, scope=args.scope, out_path=args.out,
-                                     name=args.name, author=args.author)
+                                     name=args.name, author=args.author,
+                                     tags=getattr(args, "tag", None),
+                                     types=getattr(args, "types", None))
+        manifest, _ = share.read_bundle(out)
         print(f"exported → {out}")
+        print(share.summarize(manifest))
+        if (getattr(args, "tag", None) or getattr(args, "types", None)) and not manifest.get("memory") and not manifest.get("journal"):
+            print("note: the selection matched nothing — check your --tag/--type "
+                  "(tag a memory first with `priorstates memory tag <name> <tag>`).", file=sys.stderr)
         print("Share that file; the recipient runs:  priorstates workspace import <file-or-url>")
     elif args.action in ("import", "install"):
         src = share.packaged_demo() if getattr(args, "demo", False) else args.source
@@ -235,7 +249,8 @@ def cmd_workspace(args):
         key = os.environ.get("PRIORSTATES_HUB_KEY", "")
         fd, tmp = tempfile.mkstemp(suffix=".psworkspace"); os.close(fd)
         try:
-            share.export_workspace(cfg, scope=args.scope, out_path=tmp, name=args.name, author=args.author)
+            share.export_workspace(cfg, scope=args.scope, out_path=tmp, name=args.name, author=args.author,
+                                   tags=getattr(args, "tag", None), types=getattr(args, "types", None))
             data = open(tmp, "rb").read()
         finally:
             try: os.unlink(tmp)
@@ -899,6 +914,12 @@ def build_parser():
     a.add_argument("--description", default=""); a.add_argument("--body")
     a.add_argument("--scope", default="project"); a.add_argument("--pin", action="store_true")
     a.add_argument("--overwrite", action="store_true")
+    a.add_argument("--tag", action="append", metavar="TAG",
+                   help="governance tag (e.g. promoted, reviewed); repeatable")
+    a = pms.add_parser("tag", help="add/remove governance tags on an existing memory")
+    a.add_argument("name"); a.add_argument("tags", nargs="+", metavar="TAG")
+    a.add_argument("--remove", action="store_true", help="remove the given tags instead of adding")
+    a.add_argument("--scope", default="all")
     a = pms.add_parser("search"); a.add_argument("query"); a.add_argument("-k", type=int, default=5)
     a.add_argument("--type"); a.add_argument("--scope", default="all")
     a = pms.add_parser("list"); a.add_argument("--scope", default="all")
@@ -929,6 +950,10 @@ def build_parser():
     we = pws.add_parser("export", help="bundle this workspace into a .psworkspace file")
     we.add_argument("--scope", default="project", choices=["project", "global", "user", "all"])
     we.add_argument("--out"); we.add_argument("--name"); we.add_argument("--author")
+    we.add_argument("--tag", action="append", metavar="TAG",
+                    help="export only items carrying this tag (the promotion gate); repeatable")
+    we.add_argument("--type", action="append", metavar="TYPE", dest="types",
+                    help="export only memories of this type; repeatable")
     wi = pws.add_parser("import", help="import a .psworkspace file or URL (or --demo)")
     wi.add_argument("source", nargs="?", help="path or http(s) URL to a .psworkspace")
     wi.add_argument("--demo", action="store_true", help="import the bundled demo workspace")
@@ -939,6 +964,10 @@ def build_parser():
     wpub = pws.add_parser("publish", help="export + upload to the hub; prints a shareable link")
     wpub.add_argument("--scope", default="project", choices=["project", "global", "user", "all"])
     wpub.add_argument("--name"); wpub.add_argument("--author")
+    wpub.add_argument("--tag", action="append", metavar="TAG",
+                      help="publish only items carrying this tag (the promotion gate); repeatable")
+    wpub.add_argument("--type", action="append", metavar="TYPE", dest="types",
+                      help="publish only memories of this type; repeatable")
     wpub.add_argument("--list", action="store_true", help="list it in the public hub directory (default: unlisted private link)")
     wpub.add_argument("--hub", help="hub base URL (default $PRIORSTATES_HUB or https://priorstates.com/w)")
     pw.set_defaults(func=cmd_workspace)

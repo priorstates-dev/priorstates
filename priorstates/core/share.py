@@ -71,8 +71,27 @@ def _fm_rename(text: str, new_name: str) -> str:
 # --------------------------------------------------------------------------- #
 # export
 # --------------------------------------------------------------------------- #
+def _fm_tags(text: str) -> set[str]:
+    """Tags declared in a file's frontmatter (memory or journal), as a set."""
+    from ..memory.writer import parse_tags
+    return set(parse_tags(_fm_get(_split_md(text)[0], "tags")))
+
+
 def export_workspace(config, *, scope: str = "project", out_path=None,
-                     name: str | None = None, author: str | None = None) -> Path:
+                     name: str | None = None, author: str | None = None,
+                     tags: list[str] | None = None,
+                     types: list[str] | None = None) -> Path:
+    """Bundle a workspace's memory + journal into a `.psworkspace`.
+
+    `tags` / `types` are an optional **selection filter** — the promotion gate.
+    When `tags` is given, only memory/journal items carrying at least one of
+    those tags are exported; when `types` is given, only memories of those types.
+    This is how a desk exports "only the validated facts" (`--tag promoted`)
+    across an area boundary instead of leaking the whole provisional store.
+    """
+    want_tags = {t.strip().lower() for t in (tags or []) if t.strip()}
+    want_types = {t.strip().lower() for t in (types or []) if t.strip()}
+
     mem_dirs = []
     if scope in ("project", "all") and config.memory_project_dir and Path(config.memory_project_dir).exists():
         mem_dirs.append(Path(config.memory_project_dir))
@@ -82,20 +101,37 @@ def export_workspace(config, *, scope: str = "project", out_path=None,
 
     memory, journal, members = [], [], {}
     seen = set()
+    skipped_mem = skipped_jr = 0
     for d in mem_dirs:
         for p in sorted(d.glob("*.md")):
             if p.name in _RESERVED or p.name in seen:
                 continue
             seen.add(p.name)
+            text = p.read_text(encoding="utf-8", errors="replace")
+            if want_tags and not (_fm_tags(text) & want_tags):
+                skipped_mem += 1
+                continue
+            if want_types and (_fm_get(_split_md(text)[0], "type") or "note").strip().lower() not in want_types:
+                skipped_mem += 1
+                continue
             raw = p.read_bytes()
             arc = "memory/" + p.name
             members[arc] = raw
-            memory.append({"file": arc, "name": _fm_get(raw.decode("utf-8", "replace"), "name") or p.stem,
+            memory.append({"file": arc, "name": _fm_get(text, "name") or p.stem,
                            "sha256": _sha(raw)})
 
     jd = config.journal_dir
     if scope in ("project", "all") and jd and (Path(jd) / "entries").exists():
         for p in sorted((Path(jd) / "entries").glob("*.md")):
+            text = p.read_text(encoding="utf-8", errors="replace")
+            # type filter is memory-only; a journal entry has no `type`, so a
+            # types-only selection excludes journal entirely.
+            if want_types and not want_tags:
+                skipped_jr += 1
+                continue
+            if want_tags and not (_fm_tags(text) & want_tags):
+                skipped_jr += 1
+                continue
             raw = p.read_bytes()
             arc = "journal/" + p.name
             members[arc] = raw
@@ -107,6 +143,11 @@ def export_workspace(config, *, scope: str = "project", out_path=None,
         "created_utc": _now(), "priorstates_version": _pkg_version(),
         "memory": memory, "journal": journal,
     }
+    if want_tags or want_types:
+        manifest["selection"] = {
+            "tags": sorted(want_tags), "types": sorted(want_types),
+            "skipped_memory": skipped_mem, "skipped_journal": skipped_jr,
+        }
     out = Path(out_path) if out_path else Path.cwd() / (ws_name.replace("/", "-") + ".psworkspace")
     buf = io.BytesIO()
     with tarfile.open(fileobj=buf, mode="w:gz") as tar:
@@ -160,11 +201,23 @@ def read_bundle(src) -> tuple[dict, dict]:
 
 
 def summarize(manifest: dict) -> str:
-    return ("workspace '%s' by %s — %d memor%s, %d journal entr%s (created %s)"
-            % (manifest.get("name", "?"), manifest.get("author", "anonymous"),
-               len(manifest.get("memory", [])), "y" if len(manifest.get("memory", [])) == 1 else "ies",
-               len(manifest.get("journal", [])), "y" if len(manifest.get("journal", [])) == 1 else "ies",
-               manifest.get("created_utc", "?")))
+    s = ("workspace '%s' by %s — %d memor%s, %d journal entr%s (created %s)"
+         % (manifest.get("name", "?"), manifest.get("author", "anonymous"),
+            len(manifest.get("memory", [])), "y" if len(manifest.get("memory", [])) == 1 else "ies",
+            len(manifest.get("journal", [])), "y" if len(manifest.get("journal", [])) == 1 else "ies",
+            manifest.get("created_utc", "?")))
+    sel = manifest.get("selection")
+    if sel and (sel.get("tags") or sel.get("types")):
+        crit = []
+        if sel.get("tags"):
+            crit.append("tags=" + ",".join(sel["tags"]))
+        if sel.get("types"):
+            crit.append("types=" + ",".join(sel["types"]))
+        s += ("  [filtered export: %s; %d memor%s + %d journal skipped]"
+              % (" ".join(crit), sel.get("skipped_memory", 0),
+                 "y" if sel.get("skipped_memory", 0) == 1 else "ies",
+                 sel.get("skipped_journal", 0)))
+    return s
 
 
 def import_workspace(config, src, *, verify: bool = True) -> dict:

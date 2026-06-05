@@ -66,16 +66,38 @@ def render_pinned(config, targets: list[Path] | None = None) -> tuple[str, int]:
 
 
 def add_memory(config, *, name: str, type_str: str, description: str, body: str,
-               pinned: bool = False, scope: str = "project", overwrite: bool = False) -> dict:
+               pinned: bool = False, scope: str = "project", overwrite: bool = False,
+               tags: list[str] | None = None) -> dict:
     if scope == "project" and not config.memory_project_dir:
         scope = "global"
     mem_dir, _ = _scope_dir_and_bin(config, scope)
     path = writer.create_memory(name=name, type_str=type_str, description=description,
                                 body=body, memory_dir=mem_dir,
-                                valid_types=config.memory_types, pinned=pinned, overwrite=overwrite)
+                                valid_types=config.memory_types, pinned=pinned,
+                                overwrite=overwrite, tags=tags)
     reindex(config, scope)
     render_pinned(config)
     return {"path": str(path), "scope": scope}
+
+
+def tag_memory(config, name: str, tags: list[str], *, scope: str = "all",
+               remove: bool = False) -> dict:
+    """Add or remove tags on an existing memory (across the given scope).
+
+    Tags are governance metadata (e.g. ``promoted``, ``reviewed``) that
+    `workspace export --tag` filters on — they do not affect semantic recall, so
+    no re-index is needed.
+    """
+    changed, result = [], []
+    for sc in (["global", "project"] if scope == "all" else [scope]):
+        if sc == "project" and not config.memory_project_dir:
+            continue
+        mem_dir, _ = _scope_dir_and_bin(config, sc)
+        res = writer.add_tags(name, tags, memory_dir=mem_dir, remove=remove)
+        if res:
+            path, result = res
+            changed.append(str(path))
+    return {"changed": changed, "tags": result}
 
 
 def delete_memory(config, name: str, scope: str = "all") -> dict:
