@@ -251,10 +251,20 @@ def cmd_workspace(args):
         try:
             share.export_workspace(cfg, scope=args.scope, out_path=tmp, name=args.name, author=args.author,
                                    tags=getattr(args, "tag", None), types=getattr(args, "types", None))
+            manifest, _ = share.read_bundle(tmp)
             data = open(tmp, "rb").read()
         finally:
             try: os.unlink(tmp)
             except OSError: pass
+        # show what's about to be published (publish is outward-facing); the
+        # promotion gate must not silently upload an empty selection.
+        filtered = bool(getattr(args, "tag", None) or getattr(args, "types", None))
+        print("publishing: " + share.summarize(manifest))
+        if filtered and not manifest.get("memory") and not manifest.get("journal"):
+            print("refusing to publish an empty selection — nothing matched your "
+                  "--tag/--type. Tag a memory first: `priorstates memory tag <name> <tag>`.",
+                  file=sys.stderr)
+            sys.exit(2)
         req = urllib.request.Request(hub, data=data, method="POST",
                                      headers={"Content-Type": "application/octet-stream"})
         if key:

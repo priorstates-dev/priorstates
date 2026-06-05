@@ -102,6 +102,75 @@ def test_type_filter(tmp_path):
     assert [x["name"] for x in m["memory"]] == ["a proj"]
 
 
+def _publish_args(**kw):
+    import argparse
+    ns = argparse.Namespace(action="publish", scope="project", name="strat-pack",
+                            author="research", tag=None, types=None, list=False,
+                            hub="http://fake-hub/w")
+    for k, v in kw.items():
+        setattr(ns, k, v)
+    return ns
+
+
+def test_publish_gate_uploads_only_promoted(tmp_path, monkeypatch):
+    """`workspace publish --tag promoted` uploads only the gated subset."""
+    import io
+    import json
+    import urllib.request
+
+    from priorstates import cli
+
+    cfg = _cfg(tmp_path)
+    mem.add_memory(cfg, name="promoted fact", type_str="project", description="d",
+                   body="b", scope="project", tags=["promoted"])
+    mem.add_memory(cfg, name="provisional fact", type_str="project", description="d",
+                   body="b", scope="project")
+    monkeypatch.setattr(cli, "load_config", lambda *a, **k: cfg)
+
+    captured = {}
+
+    class _Resp(io.BytesIO):
+        def __enter__(self): return self
+        def __exit__(self, *a): return False
+
+    def fake_urlopen(req, timeout=0):
+        captured["bytes"] = req.data  # the uploaded .psworkspace
+        return _Resp(json.dumps({"id": "abc123", "url": "http://fake-hub/w/abc123.psworkspace",
+                                 "token": "tok", "listed": False}).encode())
+
+    monkeypatch.setattr(urllib.request, "urlopen", fake_urlopen)
+
+    cli.cmd_workspace(_publish_args(tag=["promoted"]))
+
+    manifest, _ = share.read_bundle(captured["bytes"])
+    names = [m["name"] for m in manifest["memory"]]
+    assert names == ["promoted fact"]                       # provisional did NOT cross
+    assert manifest["selection"]["tags"] == ["promoted"]
+
+
+def test_publish_refuses_empty_selection(tmp_path, monkeypatch):
+    """A gated publish that matches nothing must not upload an empty bundle."""
+    import urllib.request
+
+    import pytest
+
+    from priorstates import cli
+
+    cfg = _cfg(tmp_path)
+    mem.add_memory(cfg, name="provisional", type_str="project", description="d",
+                   body="b", scope="project")
+    monkeypatch.setattr(cli, "load_config", lambda *a, **k: cfg)
+
+    def boom(*a, **k):
+        raise AssertionError("must not hit the hub on an empty selection")
+
+    monkeypatch.setattr(urllib.request, "urlopen", boom)
+
+    with pytest.raises(SystemExit) as ei:
+        cli.cmd_workspace(_publish_args(tag=["nonexistent"]))
+    assert ei.value.code == 2
+
+
 if __name__ == "__main__":
     import pytest
     raise SystemExit(pytest.main([__file__, "-v"]))
