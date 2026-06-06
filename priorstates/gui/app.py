@@ -194,6 +194,7 @@ class PriorStatesGUI:
         self._tabs = {}
         self._tab_dashboard(self._nb)
         self._tab_agents(self._nb)
+        self._tab_connections(self._nb)
         self._build_remote_panel(mainf)
 
         bar = ttk.Frame(root, style="Header.TFrame")
@@ -1570,7 +1571,200 @@ class PriorStatesGUI:
                 self.set_status("update failed: " + (tail[-1] if tail else "see console"))
         self.run_bg(go, done)
 
+    # ----- connection services (relay, …) managed via the plugin seam --- #
+    def _tab_connections(self, nb):
+        tk, ttk = self.tk, self.ttk
+        f = ttk.Frame(nb)
+        nb.add(f, text="Connections")
+        self._tabs["connections"] = f
+        head = ttk.Frame(f); head.pack(fill="x", padx=16, pady=(12, 4))
+        tk.Label(head, text="Connections", bg=BG, fg=FG,
+                 font=(self._fam(), 13, "bold")).pack(anchor="w")
+        tk.Label(head, text=("Background services that connect your local memory to the cloud "
+                             "apps. They run while PriorStates is open."),
+                 bg=BG, fg=DIM, wraplength=820, justify="left",
+                 font=(self._fam(), 9)).pack(anchor="w", pady=(2, 0))
+        self._svc_proc = {}        # name -> Popen
+        self._svc_rows = {}        # name -> {status, btn, spec, auto}
+        self._svc_box = ttk.Frame(f); self._svc_box.pack(fill="both", expand=True, padx=16, pady=8)
+        self._render_services()
+        # auto-start flagged services, then begin the status poll loop
+        auto = self._svc_autostart_set()
+        for spec in self._discover_services():
+            if spec.get("name") in auto and not spec.get("needs_login"):
+                self._svc_start(spec)
+        self._svc_apply_state()
+        try:
+            self.root.after(4000, self._svc_poll)
+        except Exception:
+            pass
+
+    def _discover_services(self):
+        try:
+            from ..core import plugins as _pl
+            return _pl.registry(self.cfg).services()
+        except Exception:
+            return []
+
+    def _render_services(self):
+        tk, ttk = self.tk, self.ttk
+        box = getattr(self, "_svc_box", None)
+        if box is None:
+            return
+        for c in box.winfo_children():
+            c.destroy()
+        self._svc_rows = {}
+        svcs = self._discover_services()
+        if not svcs:
+            tk.Label(box, text=("No connection services installed.\n\nInstall the free Hub edition to "
+                                "serve your memory to ChatGPT and other web/mobile apps:\n"
+                                "    pip install -U priorstates-hub"),
+                     bg=BG, fg=DIM, justify="left", font=(self._fam(), 9)).pack(anchor="w")
+            return
+        auto = self._svc_autostart_set()
+        for spec in svcs:
+            name = spec.get("name")
+            row = ttk.Frame(box); row.pack(fill="x", pady=(0, 14))
+            tk.Label(row, text=spec.get("label", name), bg=BG, fg=FG,
+                     font=(self._fam(), 10, "bold")).pack(anchor="w")
+            tk.Label(row, text=spec.get("help", ""), bg=BG, fg=DIM, wraplength=780,
+                     justify="left", font=(self._fam(), 9)).pack(anchor="w", pady=(1, 4))
+            ctl = ttk.Frame(row); ctl.pack(fill="x")
+            btn = ttk.Button(ctl, text="Start", command=lambda s=spec: self._svc_toggle(s))
+            btn.pack(side="left")
+            sv = tk.StringVar(value="stopped")
+            tk.Label(ctl, textvariable=sv, bg=BG, fg=DIM, font=(self._fam(), 9)).pack(side="left", padx=10)
+            av = tk.BooleanVar(value=name in auto)
+            cb = ttk.Checkbutton(ctl, text="Start when PriorStates opens", variable=av,
+                                 command=lambda n=name, v=av: self._svc_set_autostart(n, v.get()))
+            cb.pack(side="right")
+            self._svc_rows[name] = {"status": sv, "btn": btn, "spec": spec, "auto": av}
+
+    def _svc_toggle(self, spec):
+        name = spec.get("name")
+        p = self._svc_proc.get(name)
+        if p and p.poll() is None:
+            self._svc_stop(name)
+        else:
+            self._svc_start(spec)
+        self._svc_apply_state()
+
+    def _svc_start(self, spec):
+        name = spec.get("name")
+        if spec.get("needs_login"):
+            self.set_status(f"{spec.get('label', name)}: not logged in — run "
+                            f"`priorstates login` (or `signup`) first.")
+            return
+        env = dict(os.environ)
+        env["PRIORSTATES_HOME"] = str(self.cfg.home)
+        if self.area:
+            env["PRIORSTATES_AREA"] = self.area
+        try:
+            p = subprocess.Popen(spec.get("argv") or [], env=env,
+                                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                                 creationflags=_CNW)
+        except Exception as e:
+            self.set_status(f"could not start {name}: {e}")
+            return
+        self._svc_proc[name] = p
+        self.set_status(f"{spec.get('label', name)} started — keep PriorStates open to stay connected")
+
+    def _svc_stop(self, name):
+        p = self._svc_proc.pop(name, None)
+        if p and p.poll() is None:
+            try:
+                p.terminate()
+            except Exception:
+                pass
+        self.set_status(f"{name} stopped")
+
+    def _svc_apply_state(self):
+        for name, r in getattr(self, "_svc_rows", {}).items():
+            p = self._svc_proc.get(name)
+            running = bool(p and p.poll() is None)
+            try:
+                r["btn"].config(text="Stop" if running else "Start")
+            except Exception:
+                pass
+            if running:
+                r["status"].set("running…")
+                self._svc_probe(name, r["spec"])
+            else:
+                r["status"].set("needs login" if r["spec"].get("needs_login") else "stopped")
+
+    def _svc_poll(self):
+        self._svc_apply_state()
+        try:
+            self.root.after(4000, self._svc_poll)
+        except Exception:
+            pass
+
+    def _svc_probe(self, name, spec):
+        url = spec.get("status_url")
+        if not url:
+            return
+
+        def go():
+            import json as _json
+            import urllib.request
+            try:
+                from ..core import plugins as _pl
+                headers = _pl.registry(self.cfg).hub_headers(url)
+            except Exception:
+                headers = {}
+            try:
+                with urllib.request.urlopen(urllib.request.Request(url, headers=headers), timeout=6) as resp:
+                    d = _json.loads(resp.read() or b"{}")
+                txt = "connected ✓" if d.get(spec.get("status_key", "connected")) else "running (connecting…)"
+            except Exception:
+                txt = "running"
+
+            def upd():
+                r = self._svc_rows.get(name)
+                p = self._svc_proc.get(name)
+                if r and p and p.poll() is None:
+                    r["status"].set(txt)
+            try:
+                self.root.after(0, upd)
+            except Exception:
+                pass
+        threading.Thread(target=go, daemon=True).start()
+
+    def _svc_state_path(self):
+        return self.cfg.home / "gui.json"
+
+    def _svc_autostart_set(self):
+        import json as _json
+        try:
+            return set(_json.loads(self._svc_state_path().read_text(encoding="utf-8")).get("autostart", []))
+        except Exception:
+            return set()
+
+    def _svc_set_autostart(self, name, on):
+        import json as _json
+        p = self._svc_state_path()
+        try:
+            d = _json.loads(p.read_text(encoding="utf-8"))
+        except Exception:
+            d = {}
+        s = set(d.get("autostart", []))
+        s.add(name) if on else s.discard(name)
+        d["autostart"] = sorted(s)
+        try:
+            p.parent.mkdir(parents=True, exist_ok=True)
+            p.write_text(_json.dumps(d, indent=2), encoding="utf-8")
+        except Exception:
+            pass
+        self.set_status(f"{name}: {'will start' if on else 'won’t start'} when PriorStates opens")
+
     def on_close(self):
+        # stop every managed connection service (relay, …)
+        for p in getattr(self, "_svc_proc", {}).values():
+            try:
+                if p.poll() is None:
+                    p.terminate()
+            except Exception:
+                pass
         # stop every per-workspace cockpit
         for entry in getattr(self, "_cockpits", {}).values():
             try:

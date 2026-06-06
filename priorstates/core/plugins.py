@@ -35,6 +35,7 @@ class Registry:
         self._hub_auth = []                   # fn(url) -> dict[str, str] headers
         self._config_providers = []           # fn(cfg) -> cfg
         self._import_policies = []            # fn(manifest, members, cfg) -> (ok, reasons)
+        self._service_providers = []          # fn() -> dict|list[dict] managed services
 
     # -- registration API (called by plugins) ---------------------------- #
     def set_edition(self, name: str) -> None:
@@ -56,6 +57,12 @@ class Registry:
         """fn(manifest, members, cfg) -> (ok: bool, reasons: list[str]).
         Return ok=False to BLOCK an import (DLP / mandatory-signed / policy)."""
         self._import_policies.append(fn)
+
+    def add_service(self, fn) -> None:
+        """fn() -> dict | list[dict] describing background service(s) the desktop
+        GUI can start/stop (e.g. the Hub edition's relay). Each dict:
+        {name, label, help, argv:[…], status_url?, status_key?, needs_login?}."""
+        self._service_providers.append(fn)
 
     # -- consumption API (called by the open client) --------------------- #
     def apply_commands(self, subparsers) -> None:
@@ -81,6 +88,17 @@ class Registry:
             except Exception as e:
                 print(f"[priorstates] plugin config hook failed: {e}", file=sys.stderr)
         return cfg
+
+    def services(self) -> list:
+        """Flatten all plugin-registered service descriptors (for the GUI)."""
+        out: list = []
+        for fn in self._service_providers:
+            try:
+                r = fn() or []
+                out.extend(r if isinstance(r, (list, tuple)) else [r])
+            except Exception as e:
+                print(f"[priorstates] plugin service hook failed: {e}", file=sys.stderr)
+        return out
 
     def check_import(self, manifest, members, cfg) -> tuple[bool, list]:
         for fn in self._import_policies:
