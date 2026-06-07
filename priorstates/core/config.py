@@ -101,6 +101,8 @@ class Config:
     backup_remote: str = ""
     backup_repos: list[str] = field(default_factory=list)
     plugins: list[str] = field(default_factory=list)
+    # trust-graph knobs (parsed now; consumed by later phases — recall ranking etc.)
+    trust: dict = field(default_factory=dict)
 
     # ---- derived paths ------------------------------------------------ #
     @property
@@ -250,6 +252,7 @@ def _apply(cfg: Config, data: dict) -> Config:
     ag = data.get("agents", {})
     bk = data.get("backup", {})
     pl = data.get("plugins", {})
+    tr = data.get("trust", {}) if isinstance(data.get("trust"), dict) else {}
     return replace(
         cfg,
         model=core.get("model", cfg.model),
@@ -263,6 +266,7 @@ def _apply(cfg: Config, data: dict) -> Config:
         backup_remote=bk.get("remote", cfg.backup_remote),
         backup_repos=list(bk.get("repos", cfg.backup_repos)),
         plugins=list(pl.get("load", cfg.plugins)),
+        trust={**cfg.trust, **tr},   # overlay merges (project over global); never resets
     )
 
 

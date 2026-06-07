@@ -56,7 +56,9 @@ def call(cfg, name: str, args: dict | None):
         return mem.add_memory(cfg, name=a["name"], type_str=a["type"],
                               description=a.get("description", ""), body=a["body"],
                               pinned=a.get("pinned", False), scope=a.get("scope", "project"),
-                              tags=a.get("tags"))
+                              tags=a.get("tags"), evidence=a.get("evidence"),
+                              as_of=a.get("as_of"), valid_until=a.get("valid_until"),
+                              confidence=a.get("confidence"), source=a.get("source"))
     if name == "local_fetch":
         from ..core import preview as _pv
         return _pv.fetch(a["port"], a.get("path", "/"), a.get("method", "GET"),

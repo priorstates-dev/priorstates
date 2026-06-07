@@ -142,7 +142,30 @@ def cmd_memory(args):
         _print(mem.add_memory(cfg, name=args.name, type_str=args.type,
                               description=args.description or "", body=body,
                               pinned=args.pin, scope=args.scope, overwrite=args.overwrite,
-                              tags=getattr(args, "tag", None)))
+                              tags=getattr(args, "tag", None),
+                              evidence=getattr(args, "evidence", None),
+                              as_of=getattr(args, "as_of", None),
+                              valid_until=getattr(args, "valid_until", None),
+                              confidence=getattr(args, "confidence", None),
+                              source=getattr(args, "source", None)))
+    elif args.action == "show":
+        res = mem.show_memory(cfg, args.name, scope=args.scope)
+        if not res:
+            print(f"no memory named {args.name!r} found", file=sys.stderr); sys.exit(1)
+        fm = res["frontmatter"]
+        print(f"name:       {fm.get('name', args.name)}")
+        print(f"id:         {fm.get('id', '(none — run reindex to backfill)')}")
+        print(f"type:       {fm.get('type', 'note')}    scope: {res['scope']}")
+        print(f"as_of:      {fm.get('as_of', '(none)')}    valid_until: {fm.get('valid_until', '(none)')}")
+        print(f"confidence: {fm.get('confidence', '(derived later)')}    source: {fm.get('source', 'local (implied)')}")
+        if fm.get("description"):
+            print(f"desc:       {fm['description']}")
+        for edge in ("evidence", "supersedes", "superseded_by", "contradicts", "corroborates", "relates"):
+            if fm.get(edge):
+                print(f"{edge}: {fm[edge]}")
+        if fm.get("tags"):
+            print(f"tags:       {fm['tags']}")
+        print(f"path:       {res['path']}")
     elif args.action == "tag":
         res = mem.tag_memory(cfg, args.name, args.tags, scope=args.scope, remove=args.remove)
         if not res["changed"]:
@@ -950,6 +973,14 @@ def build_parser():
     a.add_argument("--overwrite", action="store_true")
     a.add_argument("--tag", action="append", metavar="TAG",
                    help="governance tag (e.g. promoted, reviewed); repeatable")
+    a.add_argument("--evidence", action="append", metavar="REF",
+                   help="grounding ref (journal:<id>, run:<id>, commit:<sha>, file:<path>, url:<…>); repeatable")
+    a.add_argument("--as-of", dest="as_of", metavar="DATE", help="date the claim is true as of (default: today)")
+    a.add_argument("--valid-until", dest="valid_until", metavar="DATE", help="claim goes stale after this date")
+    a.add_argument("--confidence", type=float, metavar="X", help="explicit confidence 0..1")
+    a.add_argument("--source", help="provenance origin (default: local)")
+    a = pms.add_parser("show", help="show a memory's claim fields (id, as_of, evidence, edges)")
+    a.add_argument("name"); a.add_argument("--scope", default="all")
     a = pms.add_parser("tag", help="add/remove governance tags on an existing memory")
     a.add_argument("name"); a.add_argument("tags", nargs="+", metavar="TAG")
     a.add_argument("--remove", action="store_true", help="remove the given tags instead of adding")

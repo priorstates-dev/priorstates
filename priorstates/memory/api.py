@@ -36,6 +36,10 @@ def reindex(config, scope: str = "all", *, verbose: bool = False) -> dict:
         if sc == "project" and not config.memory_project_dir:
             continue
         mem_dir, bin_path = _scope_dir_and_bin(config, sc)
+        # Phase 0: backfill claim id / as_of on any pre-trust-graph files (idempotent).
+        for p in Path(mem_dir).glob("*.md"):
+            if p.name not in indexer.SKIP_NAMES:
+                writer.ensure_claim_fields(p)
         recs = indexer.scan_memory_dirs([mem_dir])
         if not recs:
             # nothing to index; remove a stale binary so search returns empty cleanly
@@ -67,17 +71,35 @@ def render_pinned(config, targets: list[Path] | None = None) -> tuple[str, int]:
 
 def add_memory(config, *, name: str, type_str: str, description: str, body: str,
                pinned: bool = False, scope: str = "project", overwrite: bool = False,
-               tags: list[str] | None = None) -> dict:
+               tags: list[str] | None = None, as_of: str | None = None,
+               valid_until: str | None = None, confidence: float | None = None,
+               source: str | None = None, evidence: list[str] | None = None) -> dict:
     if scope == "project" and not config.memory_project_dir:
         scope = "global"
     mem_dir, _ = _scope_dir_and_bin(config, scope)
     path = writer.create_memory(name=name, type_str=type_str, description=description,
                                 body=body, memory_dir=mem_dir,
                                 valid_types=config.memory_types, pinned=pinned,
-                                overwrite=overwrite, tags=tags)
+                                overwrite=overwrite, tags=tags, as_of=as_of,
+                                valid_until=valid_until, confidence=confidence,
+                                source=source, evidence=evidence)
     reindex(config, scope)
     render_pinned(config)
     return {"path": str(path), "scope": scope}
+
+
+def show_memory(config, name: str, scope: str = "all") -> dict | None:
+    """Return a claim's full frontmatter + body, read from the `.md` (source of
+    truth) — surfaces the trust-graph fields (id, as_of, evidence, edges)."""
+    for sc in (["project", "global"] if scope == "all" else [scope]):
+        if sc == "project" and not config.memory_project_dir:
+            continue
+        mem_dir, _ = _scope_dir_and_bin(config, sc)
+        path = writer.find_existing_by_name(Path(mem_dir), name)
+        if path:
+            fm, body = indexer._parse_frontmatter(Path(path).read_text(encoding="utf-8"))
+            return {"scope": sc, "path": str(path), "frontmatter": fm, "body": body.strip()}
+    return None
 
 
 def tag_memory(config, name: str, tags: list[str], *, scope: str = "all",
