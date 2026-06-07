@@ -141,6 +141,7 @@ class PriorStatesGUI:
         self._connections = []
 
         self._apply_theme()
+        self._build_menubar()
 
         # header (brand)
         header = ttk.Frame(root, style="Header.TFrame")
@@ -1540,6 +1541,87 @@ class PriorStatesGUI:
 
     # Reinstall the latest PriorStates from GitHub (the pip-from-git path).
     REPO_URL = "git+https://github.com/zqin2012/priorstates.git"
+
+    def _build_menubar(self):
+        """A native menu bar — Help → About / Check for updates. (No menu existed
+        before, so version/build info was buried in the dashboard.)"""
+        tk = self.tk
+        try:
+            menubar = tk.Menu(self.root)
+            helpm = tk.Menu(menubar, tearoff=0)
+            helpm.add_command(label="About PriorStates", command=self._about)
+            helpm.add_command(label="Check for updates…", command=self.update_software)
+            menubar.add_cascade(label="Help", menu=helpm)
+            self.root.config(menu=menubar)
+        except Exception:
+            pass     # a menu bar is a nicety; never let it block startup
+
+    def _about_info(self):
+        """(edition, [(label, version)…], python, exe, install_dir, home) for About."""
+        import platform
+        from importlib.metadata import version as _ver
+        def v(pkg):
+            try:
+                return _ver(pkg)
+            except Exception:
+                return None
+        vers = [(lbl, v(pkg)) for lbl, pkg in (
+            ("Core", "priorstates"), ("Hub", "priorstates-hub"),
+            ("Enterprise", "priorstates-enterprise")) if v(pkg)]
+        try:
+            from ..core import plugins
+            edition = plugins.registry(getattr(self, "cfg", None)).edition
+        except Exception:
+            edition = "community"
+        import priorstates as _pp
+        install_dir = os.path.dirname(os.path.dirname(os.path.abspath(_pp.__file__)))
+        home = str(getattr(getattr(self, "cfg", None), "home", "") or "")
+        return edition, vers, platform.python_version(), sys.executable, install_dir, home
+
+    def _about(self):
+        tk = self.tk
+        edition, vers, py, exe, install_dir, home = self._about_info()
+        lines = ["PriorStates", "shared memory & research journal for your AI agents", "",
+                 f"Edition:       {edition}"]
+        lines += [f"{lbl + ' version:':<14} {ver}" for lbl, ver in vers]
+        lines += [f"Python:        {py}",
+                  f"Executable:    {exe}",
+                  f"Install path:  {install_dir}",
+                  f"Memory home:   {home or '(none)'}"]
+        # A pip --user copy shadows a system/.deb install (user site-packages sorts
+        # ahead on sys.path), so reinstalling the .deb looks like it "did nothing".
+        # Flag it right here so it's diagnosable from the About box.
+        if ".local/lib" in install_dir:
+            lines += ["", "⚠ Running from a pip --user install — this shadows any system/.deb",
+                      "  install. If a reinstall seems to have no effect, remove it:",
+                      "      python3 -m pip uninstall priorstates priorstates-hub"]
+        body = "\n".join(lines)
+        try:
+            win = tk.Toplevel(self.root)
+            win.title("About PriorStates")
+            win.transient(self.root)
+            win.configure(bg="#0d1117")
+            frm = self.ttk.Frame(win, style="TFrame")
+            frm.pack(fill="both", expand=True, padx=16, pady=14)
+            txt = tk.Text(frm, width=72, height=len(lines) + 1, relief="flat",
+                          bg="#0d1117", fg="#e6edf3", font=("TkFixedFont", 10),
+                          highlightthickness=0, wrap="none")
+            txt.insert("1.0", body)
+            txt.config(state="disabled")
+            txt.pack(fill="both", expand=True)
+            btns = self.ttk.Frame(frm, style="TFrame")
+            btns.pack(fill="x", pady=(12, 0))
+
+            def _copy():
+                self.root.clipboard_clear()
+                self.root.clipboard_append(body)
+                self.set_status("About info copied to clipboard")
+            self.ttk.Button(btns, text="Copy", command=_copy).pack(side="left")
+            self.ttk.Button(btns, text="Close", command=win.destroy).pack(side="right")
+            win.bind("<Escape>", lambda e: win.destroy())
+        except Exception:
+            from tkinter import messagebox
+            messagebox.showinfo("About PriorStates", body)
 
     def update_software(self):
         from tkinter import messagebox
