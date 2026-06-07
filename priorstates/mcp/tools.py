@@ -15,6 +15,9 @@ from ..memory import api as mem
 READ_TOOLS = ("memory_search", "memory_get", "memory_list_pinned", "journal_search", "memory_answer")
 WRITE_TOOLS = ("memory_add", "journal_add")
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
+# Opt-in extras (not served by default). PREVIEW_TOOLS exposes this machine's
+# localhost web servers to the hub's Preview panel — only with `--allow-preview`.
+PREVIEW_TOOLS = ("local_fetch",)
 
 
 def call(cfg, name: str, args: dict | None):
@@ -54,6 +57,10 @@ def call(cfg, name: str, args: dict | None):
                               description=a.get("description", ""), body=a["body"],
                               pinned=a.get("pinned", False), scope=a.get("scope", "project"),
                               tags=a.get("tags"))
+    if name == "local_fetch":
+        from ..core import preview as _pv
+        return _pv.fetch(a["port"], a.get("path", "/"), a.get("method", "GET"),
+                         a.get("headers"), a.get("body_b64"))
     if name == "journal_add":
         e = J.add(cfg, topic=a["topic"], outcome=a["outcome"], title=a["title"],
                   body=a["body"], tags=a.get("tags"), evidence=a.get("evidence"),
