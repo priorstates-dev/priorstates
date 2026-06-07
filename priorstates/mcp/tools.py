@@ -12,8 +12,9 @@ from ..memory import api as mem
 
 # Recall-only tools — the safe default for the relay (a web app can READ your
 # memory but not modify it). Writes are opt-in (`--allow-write`).
-READ_TOOLS = ("memory_search", "memory_get", "memory_list_pinned", "journal_search", "memory_answer")
-WRITE_TOOLS = ("memory_add", "journal_add")
+READ_TOOLS = ("memory_search", "memory_get", "memory_list_pinned", "journal_search",
+              "memory_answer", "memory_explain")
+WRITE_TOOLS = ("memory_add", "journal_add", "memory_record_outcome")
 ALL_TOOLS = READ_TOOLS + WRITE_TOOLS
 # Opt-in extras (not served by default). PREVIEW_TOOLS exposes this machine's
 # localhost web servers to the hub's Preview panel — only with `--allow-preview`.
@@ -28,6 +29,12 @@ def call(cfg, name: str, args: dict | None):
                                  type_str=a.get("type"), scope=a.get("scope", "all"))
     if name == "memory_get":
         return mem.get_memory(cfg, a["name"], scope=a.get("scope", "all"))
+    if name == "memory_explain":
+        return mem.explain(cfg, a["name"], scope=a.get("scope", "all"))
+    if name == "memory_record_outcome":
+        return mem.record_outcome(cfg, a["name"], a["result"], by=a.get("by", ""),
+                                  note=a.get("note", ""), weight=a.get("weight", 1.0),
+                                  scope=a.get("scope", "all"))
     if name == "memory_list_pinned":
         return mem.list_pinned(cfg, scope=a.get("scope", "all"))
     if name == "journal_search":

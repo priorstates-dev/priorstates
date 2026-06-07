@@ -7,8 +7,11 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import time
+
 from ..core import format as _fmt
 from ..core import indexer
+from ..core import outcomes
 from ..core.embedder import get_embedder
 from ..core.format import DTYPE_F16, DTYPE_F32
 from ..core.store import MemoryStore
@@ -304,6 +307,82 @@ def find_near_dups(config, *, name: str | None = None, text: str | None = None,
                     out.append({"name": h.name, "score": round(h.score, 4), "src": h.src_path})
     out.sort(key=lambda r: r["score"], reverse=True)
     return out[:k]
+
+
+def _resolves(ref: str):
+    """Best-effort check that an evidence ref points at something real.
+    Locally checkable: file:/data: (path exists). Others (run/commit/journal/url/pack)
+    return None = 'not locally verifiable'."""
+    kind, _, val = str(ref).partition(":")
+    if kind in ("file", "data"):
+        return Path(val.split("#", 1)[0]).exists()
+    return None
+
+
+def explain(config, name: str, scope: str = "all") -> dict | None:
+    """Everything behind a claim: confidence breakdown, evidence (with resolve check),
+    edges, and the outcome ledger — powers `memory why` / the MCP memory_explain tool."""
+    rec = show_memory(config, name, scope=scope)
+    if not rec:
+        return None
+    fm = rec["frontmatter"]
+    cid = fm.get("id")
+    mem_dir = Path(rec["path"]).parent
+    net = outcomes.net_by_claim(mem_dir).get(cid, 0.0) if cid else 0.0
+    comps = indexer.confidence_components(
+        source=fm.get("source"), signer=fm.get("signer"), scan=fm.get("scan"),
+        evidence=indexer._parse_list(fm.get("evidence")),
+        corroborates_n=len(indexer._parse_list(fm.get("corroborates"))),
+        explicit=fm.get("confidence"), outcomes_net=net,
+        trust_cfg=getattr(config, "trust", {}) or {})
+    return {
+        "name": fm.get("name", name), "id": cid, "scope": rec["scope"], "path": rec["path"],
+        "as_of": fm.get("as_of"), "valid_until": fm.get("valid_until"),
+        "source": fm.get("source", "local"), "signer": fm.get("signer"),
+        "scan": fm.get("scan", "ok"), "confidence": comps, "outcomes_net": net,
+        "evidence": [{"ref": r, "resolves": _resolves(r)} for r in indexer._parse_list(fm.get("evidence"))],
+        "edges": {k: indexer._parse_list(fm.get(k)) for k in indexer.EDGE_KINDS if fm.get(k)},
+        "outcomes": outcomes.list_for(mem_dir, cid) if cid else [],
+    }
+
+
+def record_outcome(config, name: str, result: str, *, by: str = "", note: str = "",
+                   weight: float = 1.0, scope: str = "all") -> dict | None:
+    """Append an acted-on outcome for a claim, then reindex so confidence reflects it."""
+    for sc in (["project", "global"] if scope == "all" else [scope]):
+        if sc == "project" and not config.memory_project_dir:
+            continue
+        mem_dir, _ = _scope_dir_and_bin(config, sc)
+        path = writer.find_existing_by_name(Path(mem_dir), name)
+        if path:
+            writer.ensure_claim_fields(path)
+            cid = writer._frontmatter_value(path, "id")
+            rec = outcomes.record(mem_dir, cid, result, by=by, note=note, weight=weight)
+            reindex(config, sc)
+            return {"scope": sc, "claim": cid, "result": rec["result"]}
+    return None
+
+
+def list_stale(config, scope: str = "all") -> list[dict]:
+    """Claims past their `valid_until` — the re-verify queue."""
+    now = time.time()
+    out = []
+    for sc in (["project", "global"] if scope == "all" else [scope]):
+        if sc == "project" and not config.memory_project_dir:
+            continue
+        mem_dir, _ = _scope_dir_and_bin(config, sc)
+        for p in Path(mem_dir).glob("*.md"):
+            if p.name in indexer.SKIP_NAMES:
+                continue
+            try:
+                fm, _ = indexer._parse_frontmatter(p.read_text(encoding="utf-8"))
+            except OSError:
+                continue
+            vu = indexer._date_to_unix(fm.get("valid_until"))
+            if vu and vu < now:
+                out.append({"name": fm.get("name", p.stem), "valid_until": fm.get("valid_until"),
+                            "scope": sc, "src": str(p)})
+    return out
 
 
 def get_memory(config, name: str, scope: str = "all") -> dict | None:

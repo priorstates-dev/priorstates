@@ -202,6 +202,49 @@ def cmd_memory(args):
             print("no near-duplicates above threshold")
         for r in rows:
             print(f"{r['score']:+.3f}  {r['name']}")
+    elif args.action == "why":
+        info = mem.explain(cfg, args.name, scope=args.scope)
+        if not info:
+            print(f"no memory named {args.name!r} found", file=sys.stderr); sys.exit(1)
+        c = info["confidence"]
+        print(f"claim   {info.get('id') or '(no id)'}  {info['name']!r}")
+        if c.get("explicit"):
+            print(f"trust   {c['value']:.2f}  (explicit)")
+        else:
+            print(f"trust   {c['value']:.2f}  =  base {c['base']:.2f} + evidence {c['evidence_bonus']:.2f}"
+                  f" + corrob {c['corroboration']:.2f}  · outcomes ×{c['outcome_factor']:.2f}")
+        print(f"as_of   {info.get('as_of') or '(none)'}    valid_until {info.get('valid_until') or '(none)'}"
+              f"    scope {info['scope']}")
+        print(f"source  {info.get('source') or 'local'}    signer {info.get('signer') or '-'}"
+              f"    scan {info.get('scan') or 'ok'}")
+        if info["evidence"]:
+            print("evidence")
+            for e in info["evidence"]:
+                mark = {True: "✓", False: "✗", None: "?"}[e["resolves"]]
+                print(f"  {mark} {e['ref']}")
+        if info["edges"]:
+            print("edges")
+            for kind, targets in info["edges"].items():
+                print(f"  {kind}: {', '.join(targets)}")
+        if info["outcomes"]:
+            print("outcomes")
+            for o in info["outcomes"]:
+                extra = (f" ({o['by']})" if o.get("by") else "") + (f": {o['note']}" if o.get("note") else "")
+                print(f"  {o.get('at', '')}  {o['result']}{extra}")
+        print(f"path    {info['path']}")
+    elif args.action == "verify":
+        if not getattr(args, "result", None):
+            print("specify one of --confirm/--refute/--used-ok/--used-bad", file=sys.stderr); sys.exit(2)
+        res = mem.record_outcome(cfg, args.name, args.result, by=args.by, note=args.note, scope=args.scope)
+        if not res:
+            print(f"no memory named {args.name!r} found", file=sys.stderr); sys.exit(1)
+        print(f"recorded {res['result']} for {args.name!r} — confidence updated.")
+    elif args.action == "stale":
+        rows = mem.list_stale(cfg, scope=args.scope)
+        if not rows:
+            print("no stale claims")
+        for r in rows:
+            print(f"⏳ {r['name']}   valid_until {r['valid_until']}   ({r['scope']})")
     elif args.action == "tag":
         res = mem.tag_memory(cfg, args.name, args.tags, scope=args.scope, remove=args.remove)
         if not res["changed"]:
@@ -1053,6 +1096,18 @@ def build_parser():
     a.add_argument("--scope", default="all")
     a = pms.add_parser("dups", help="list near-duplicate claims (of NAME, or scan all)")
     a.add_argument("name", nargs="?"); a.add_argument("--threshold", type=float)
+    a.add_argument("--scope", default="all")
+    a = pms.add_parser("why", help="explain a claim: confidence breakdown, evidence, edges, outcomes")
+    a.add_argument("name"); a.add_argument("--scope", default="all")
+    a = pms.add_parser("verify", help="record an acted-on outcome for a claim (updates confidence)")
+    a.add_argument("name")
+    a.add_argument("--confirm", action="store_const", const="confirmed", dest="result")
+    a.add_argument("--refute", action="store_const", const="refuted", dest="result")
+    a.add_argument("--used-ok", action="store_const", const="used_ok", dest="result")
+    a.add_argument("--used-bad", action="store_const", const="used_bad", dest="result")
+    a.add_argument("--note", default=""); a.add_argument("--by", default="")
+    a.add_argument("--scope", default="all")
+    a = pms.add_parser("stale", help="list claims past their valid_until (the re-verify queue)")
     a.add_argument("--scope", default="all")
     a = pms.add_parser("tag", help="add/remove governance tags on an existing memory")
     a.add_argument("name"); a.add_argument("tags", nargs="+", metavar="TAG")

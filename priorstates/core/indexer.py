@@ -17,6 +17,7 @@ from pathlib import Path
 
 import numpy as np
 
+from . import outcomes
 from .format import (
     DTYPE_F16, DTYPE_F32, ENTRY_SIZE, FLAG_CONTRADICTED, FLAG_EMBED_NORMALIZED,
     FLAG_FLAGGED, FLAG_HAS_EDGES, FLAG_PINNED, FLAG_STALE, FLAG_SUPERSEDED,
@@ -72,14 +73,18 @@ def _date_to_unix(s: str | None) -> float:
     return 0.0
 
 
-def compute_confidence(*, source: str | None, signer: str | None, scan: str | None,
-                       evidence: list[str], corroborates_n: int = 0,
-                       explicit=None, trust_cfg: dict | None = None) -> float:
-    """Reference confidence formula (Phase 1 — no outcome ledger yet, that's Phase 3).
-    Pure + explainable; weights overridable via the ``[trust]`` config."""
+def confidence_components(*, source: str | None, signer: str | None, scan: str | None,
+                          evidence: list[str], corroborates_n: int = 0, explicit=None,
+                          outcomes_net: float = 0.0, trust_cfg: dict | None = None) -> dict:
+    """Reference confidence formula, broken into explainable parts (powers `memory why`).
+    Pure; weights overridable via the ``[trust]`` config. ``outcomes_net`` is the signed
+    sum of acted-on outcomes (Phase 3): confirmed/used_ok raise, refuted/used_bad lower."""
+    import math
     if explicit is not None and str(explicit).strip() != "":
         try:
-            return max(0.0, min(1.0, float(explicit)))
+            v = max(0.0, min(1.0, float(explicit)))
+            return {"base": v, "evidence_bonus": 0.0, "corroboration": 0.0,
+                    "outcome_factor": 1.0, "value": v, "explicit": True}
         except (TypeError, ValueError):
             pass
     cfg = trust_cfg or {}
@@ -96,7 +101,15 @@ def compute_confidence(*, source: str | None, signer: str | None, scan: str | No
     if any(str(e).split(":", 1)[0] in ("run", "commit", "data") for e in ev):
         bonus += 0.10                                   # grounded in a verifiable artifact
     corr = min(0.20, 0.05 * max(0, corroborates_n))
-    return max(0.0, min(1.0, base + bonus + corr))
+    # outcome factor: 1.0 at net 0 (no change), >1 for net-positive, <1 for net-negative
+    factor = 2.0 / (1.0 + math.exp(-0.4 * float(outcomes_net)))
+    value = max(0.0, min(1.0, (base + bonus + corr) * factor))
+    return {"base": base, "evidence_bonus": bonus, "corroboration": corr,
+            "outcome_factor": factor, "value": value, "explicit": False}
+
+
+def compute_confidence(**kwargs) -> float:
+    return confidence_components(**kwargs)["value"]
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -139,10 +152,12 @@ def _read_memory(path: Path) -> MemoryRecord | None:
     valid_until_unix = _date_to_unix(fm.get("valid_until"))
     scan = (fm.get("scan") or "").strip().lower()
     evidence = _parse_list(fm.get("evidence"))
+    cid = fm.get("id")
+    net = outcomes.net_by_claim(path.parent).get(cid, 0.0) if cid else 0.0
     confidence = compute_confidence(
         source=fm.get("source"), signer=fm.get("signer"), scan=scan,
         evidence=evidence, corroborates_n=len(_parse_list(fm.get("corroborates"))),
-        explicit=fm.get("confidence"))
+        explicit=fm.get("confidence"), outcomes_net=net)
     return MemoryRecord(
         name=name, description=fm.get("description", "").strip(),
         type_code=type_code, body=body.strip(), src_path=str(path),
