@@ -7,6 +7,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
+from ..core import format as _fmt
 from ..core import indexer
 from ..core.embedder import get_embedder
 from ..core.format import DTYPE_F16, DTYPE_F32
@@ -54,6 +55,7 @@ def reindex(config, scope: str = "all", *, verbose: bool = False) -> dict:
 def render_pinned(config, targets: list[Path] | None = None) -> tuple[str, int]:
     """Render the pinned block into agent context files. Targets default to the
     enabled agents' context files (resolved by the agents adapters)."""
+    _ensure_index_current(config, "all")
     bins = [p for p in (config.memory_global_bin,
                         (config.project_dir / "memory.psmem") if config.project_dir else None)
             if p and Path(p).exists()]
@@ -150,6 +152,35 @@ def pin_memory(config, name: str, pinned: bool = True, scope: str = "all") -> di
     return {"changed": changed, "pinned": pinned}
 
 
+def _ensure_index_current(config, scope: str) -> None:
+    """Rebuild any existing .psmem whose on-disk format version is stale (e.g. a v1
+    index after the v2 trust-graph bump) so reads upgrade seamlessly instead of
+    crashing. A cheap 6-byte header probe; only rebuilds a valid-but-old index."""
+    for sc in (["global", "project"] if scope == "all" else [scope]):
+        if sc == "project" and not config.memory_project_dir:
+            continue
+        try:
+            _, bin_path = _scope_dir_and_bin(config, sc)
+        except writer.MemoryWriteError:
+            continue
+        if Path(bin_path).exists():
+            v = _fmt.file_version(bin_path)
+            if v is not None and v != _fmt.VERSION:
+                reindex(config, sc)
+
+
+def _trust_params(config, *, no_trust: bool = False, min_trust=None,
+                  fresh: bool = False) -> tuple[bool, float, float]:
+    """(trust_weight, min_trust, halflife_days) from the `[trust]` config + overrides."""
+    tcfg = getattr(config, "trust", {}) or {}
+    enabled = bool(tcfg.get("enabled", True)) and not no_trust
+    mt = float(min_trust) if min_trust is not None else float(tcfg.get("min_trust", 0.0) or 0.0)
+    hl = float(tcfg.get("halflife_days", 180.0) or 180.0)
+    if fresh:
+        hl = max(1.0, hl / 3.0)        # --fresh: weight recency harder (shorter half-life)
+    return enabled, mt, hl
+
+
 def _bins_for_scope(config, scope: str) -> list[Path]:
     out = []
     if scope in ("all", "project") and config.project_dir:
@@ -162,24 +193,32 @@ def _bins_for_scope(config, scope: str) -> list[Path]:
 
 
 def search_memory(config, query: str, k: int = 5, type_str: str | None = None,
-                  scope: str = "all") -> list[dict]:
+                  scope: str = "all", *, no_trust: bool = False, min_trust=None,
+                  fresh: bool = False) -> list[dict]:
+    _ensure_index_current(config, scope)
     bins = _bins_for_scope(config, scope)
     if not bins:
         return []
+    tw, mt, hl = _trust_params(config, no_trust=no_trust, min_trust=min_trust, fresh=fresh)
     emb = get_embedder(config)
     qv = emb.embed_one(query)
     hits = []
     for bp in bins:
         with MemoryStore(bp) as st:
-            for h in st.search(qv, k=k, type_filter=type_str):
+            for h in st.search(qv, k=k, type_filter=type_str, trust_weight=tw,
+                               min_trust=mt, halflife_days=hl):
                 hits.append({"name": h.name, "description": h.description, "body": h.body,
                              "type": h.type, "score": round(h.score, 4), "pinned": h.pinned,
+                             "trust": round(h.trust, 4), "fresh": round(h.fresh, 4),
+                             "stale": h.stale, "superseded": h.superseded,
+                             "contradicted": h.contradicted, "flagged": h.flagged,
                              "src": h.src_path})
     hits.sort(key=lambda r: r["score"], reverse=True)
     return hits[:k]
 
 
 def get_memory(config, name: str, scope: str = "all") -> dict | None:
+    _ensure_index_current(config, scope)
     for bp in _bins_for_scope(config, scope):
         with MemoryStore(bp) as st:
             h = st.get_by_name(name)
@@ -190,6 +229,7 @@ def get_memory(config, name: str, scope: str = "all") -> dict | None:
 
 
 def list_pinned(config, scope: str = "all") -> list[dict]:
+    _ensure_index_current(config, scope)
     out = []
     for bp in _bins_for_scope(config, scope):
         with MemoryStore(bp) as st:

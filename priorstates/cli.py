@@ -173,11 +173,27 @@ def cmd_memory(args):
         verb = "removed from" if args.remove else "on"
         print(f"tags {verb} {args.name!r}: [{', '.join(res['tags'])}]")
     elif args.action == "search":
-        rows = mem.search_memory(cfg, args.query, k=args.k, type_str=args.type, scope=args.scope)
+        no_trust = getattr(args, "no_trust", False)
+        rows = mem.search_memory(cfg, args.query, k=args.k, type_str=args.type, scope=args.scope,
+                                 no_trust=no_trust, min_trust=getattr(args, "min_trust", None),
+                                 fresh=getattr(args, "fresh", False))
         for r in rows:
-            print(f"{r['score']:+.3f}  [{r['type']}]{' 📌' if r['pinned'] else ''}  {r['name']}")
+            flags = []
+            if r.get("stale"): flags.append("⏳stale")
+            if r.get("superseded"): flags.append("⤳superseded")
+            if r.get("contradicted"): flags.append("⚔contradicted")
+            if r.get("flagged"): flags.append("⚑flagged")
+            meta = "" if no_trust else f"   trust {r.get('trust', 1):.2f}·fresh {r.get('fresh', 1):.2f}"
+            tail = ("  " + " ".join(flags)) if flags else ""
+            print(f"{r['score']:+.3f}  [{r['type']}]{' 📌' if r['pinned'] else ''}  {r['name']}{meta}{tail}")
             if r["description"]:
                 print(f"        {r['description']}")
+            if getattr(args, "show_why", False):
+                info = mem.show_memory(cfg, r["name"], scope=args.scope)
+                fm = info["frontmatter"] if info else {}
+                bits = [f"{k} {fm[k]}" for k in ("as_of", "source", "evidence") if fm.get(k)]
+                if bits:
+                    print("        ↳ " + "  ".join(bits))
     elif args.action == "list":
         for r in mem.list_pinned(cfg, scope=args.scope):
             print(f"📌 {r['name']}  [{r['type']}]  {r['description']}")
@@ -987,6 +1003,13 @@ def build_parser():
     a.add_argument("--scope", default="all")
     a = pms.add_parser("search"); a.add_argument("query"); a.add_argument("-k", type=int, default=5)
     a.add_argument("--type"); a.add_argument("--scope", default="all")
+    a.add_argument("--min-trust", dest="min_trust", type=float, metavar="X",
+                   help="hide claims below this confidence (0..1)")
+    a.add_argument("--fresh", action="store_true", help="weight recency harder")
+    a.add_argument("--no-trust", dest="no_trust", action="store_true",
+                   help="legacy pure-cosine ranking (ignore trust + freshness)")
+    a.add_argument("--show-why", dest="show_why", action="store_true",
+                   help="print as_of/source/evidence under each hit")
     a = pms.add_parser("list"); a.add_argument("--scope", default="all")
     a = pms.add_parser("pin"); a.add_argument("name"); a.add_argument("--unpin", action="store_true")
     a.add_argument("--scope", default="all")

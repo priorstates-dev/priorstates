@@ -12,12 +12,14 @@ import os
 import re
 import time
 from dataclasses import dataclass
+from datetime import datetime
 from pathlib import Path
 
 import numpy as np
 
 from .format import (
-    DTYPE_F16, DTYPE_F32, ENTRY_SIZE, FLAG_EMBED_NORMALIZED, FLAG_PINNED,
+    DTYPE_F16, DTYPE_F32, ENTRY_SIZE, FLAG_CONTRADICTED, FLAG_EMBED_NORMALIZED,
+    FLAG_FLAGGED, FLAG_PINNED, FLAG_STALE, FLAG_SUPERSEDED,
     HEADER_SIZE, Header, IndexEntry, TYPE_CODES, align_up,
 )
 
@@ -35,6 +37,63 @@ class MemoryRecord:
     ctime_unix: float
     mtime_unix: float
     pinned: bool = False
+    # trust-graph scalars (v2 index); confidence is never 0 unless explicitly set
+    confidence: float = 1.0
+    as_of_unix: float = 0.0
+    superseded: bool = False
+    contradicted: bool = False
+    stale: bool = False
+    flagged: bool = False
+
+
+def _parse_list(v: str | None) -> list[str]:
+    """Parse an inline frontmatter list like ``[journal:x, run:y]`` → ['journal:x','run:y'].
+    Splits on commas only (refs contain ':' and '/')."""
+    if not v:
+        return []
+    v = v.strip()
+    if v.startswith("[") and v.endswith("]"):
+        v = v[1:-1]
+    return [p.strip().strip("\"'") for p in v.split(",") if p.strip()]
+
+
+def _date_to_unix(s: str | None) -> float:
+    s = (s or "").strip()
+    if not s:
+        return 0.0
+    for fmt in ("%Y-%m-%dT%H:%M:%S", "%Y-%m-%d"):
+        try:
+            return datetime.strptime(s[:len("YYYY-MM-DDTHH:MM:SS")] if "T" in s else s, fmt).timestamp()
+        except ValueError:
+            continue
+    return 0.0
+
+
+def compute_confidence(*, source: str | None, signer: str | None, scan: str | None,
+                       evidence: list[str], corroborates_n: int = 0,
+                       explicit=None, trust_cfg: dict | None = None) -> float:
+    """Reference confidence formula (Phase 1 — no outcome ledger yet, that's Phase 3).
+    Pure + explainable; weights overridable via the ``[trust]`` config."""
+    if explicit is not None and str(explicit).strip() != "":
+        try:
+            return max(0.0, min(1.0, float(explicit)))
+        except (TypeError, ValueError):
+            pass
+    cfg = trust_cfg or {}
+    src = (source or "").strip().lower()
+    imported = bool(src) and src != "local"
+    if (scan or "").strip().lower() == "flagged":
+        base = float(cfg.get("base_flagged", 0.10))
+    elif imported:
+        base = float(cfg.get("base_signed", 0.60)) if signer else float(cfg.get("base_unsigned", 0.40))
+    else:
+        base = float(cfg.get("base_local", 0.60))
+    ev = [e for e in (evidence or []) if e]
+    bonus = 0.10 if ev else 0.0
+    if any(str(e).split(":", 1)[0] in ("run", "commit", "data") for e in ev):
+        bonus += 0.10                                   # grounded in a verifiable artifact
+    corr = min(0.20, 0.05 * max(0, corroborates_n))
+    return max(0.0, min(1.0, base + bonus + corr))
 
 
 def _parse_frontmatter(text: str) -> tuple[dict, str]:
@@ -72,10 +131,24 @@ def _read_memory(path: Path) -> MemoryRecord | None:
     type_code = TYPE_CODES.get(type_str, TYPE_CODES["note"])
     pinned = (fm.get("pinned") or "").strip().lower() in ("true", "yes", "1", "on")
     st = path.stat()
+    # trust-graph fields (all optional; sensible defaults keep recall identical when absent)
+    as_of_unix = _date_to_unix(fm.get("as_of")) or float(st.st_mtime)
+    valid_until_unix = _date_to_unix(fm.get("valid_until"))
+    scan = (fm.get("scan") or "").strip().lower()
+    evidence = _parse_list(fm.get("evidence"))
+    confidence = compute_confidence(
+        source=fm.get("source"), signer=fm.get("signer"), scan=scan,
+        evidence=evidence, corroborates_n=len(_parse_list(fm.get("corroborates"))),
+        explicit=fm.get("confidence"))
     return MemoryRecord(
         name=name, description=fm.get("description", "").strip(),
         type_code=type_code, body=body.strip(), src_path=str(path),
         ctime_unix=float(st.st_ctime), mtime_unix=float(st.st_mtime), pinned=pinned,
+        confidence=confidence, as_of_unix=as_of_unix,
+        superseded=bool(_parse_list(fm.get("superseded_by"))),
+        contradicted=bool(_parse_list(fm.get("contradicts"))),
+        stale=bool(valid_until_unix) and valid_until_unix < time.time(),
+        flagged=(scan == "flagged"),
     )
 
 
@@ -144,11 +217,20 @@ def build_binary(records: list[MemoryRecord], embeddings: np.ndarray, out_path: 
         body_off = len(bodies)
         body_bytes = rec.body.encode("utf-8")
         bodies.extend(body_bytes)
+        flags = (FLAG_PINNED if rec.pinned else 0)
+        if rec.superseded:
+            flags |= FLAG_SUPERSEDED
+        if rec.contradicted:
+            flags |= FLAG_CONTRADICTED
+        if rec.stale:
+            flags |= FLAG_STALE
+        if rec.flagged:
+            flags |= FLAG_FLAGGED
         entries.append(IndexEntry(
             name_off=name_off, name_len=name_len, desc_off=desc_off, desc_len=desc_len,
             body_off=body_off, body_len=len(body_bytes), src_path_off=src_off, src_path_len=src_len,
             type_code=rec.type_code, ctime_unix=rec.ctime_unix, mtime_unix=rec.mtime_unix,
-            flags=(FLAG_PINNED if rec.pinned else 0),
+            confidence=float(rec.confidence), as_of_unix=float(rec.as_of_unix), flags=flags,
             name_hash=hashlib.sha256(rec.name.encode("utf-8")).digest()[:16],
         ))
 

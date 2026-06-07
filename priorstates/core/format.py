@@ -10,7 +10,7 @@ import struct
 from dataclasses import dataclass
 
 MAGIC = b"PMEM"
-VERSION = 1
+VERSION = 2          # v2 (trust graph): IndexEntry gains confidence + as_of_unix + flags
 PAGE = 4096
 
 # Header (128 bytes): <  4s magic, H version, H flags, I n_entries, I dim,
@@ -21,16 +21,22 @@ HEADER_STRUCT = struct.Struct("<4sHHIIII QQ QQ QQ Q 48s")
 HEADER_SIZE = 128
 assert HEADER_STRUCT.size == HEADER_SIZE, HEADER_STRUCT.size
 
-# IndexEntry (64 bytes).
-ENTRY_STRUCT = struct.Struct("<IIII IIII B3s ff I 16s")
-ENTRY_SIZE = 64
+# IndexEntry (72 bytes). v2 appends two floats after mtime: confidence + as_of_unix
+# (the trust-graph scalars recall needs without reading every .md).
+ENTRY_STRUCT = struct.Struct("<IIII IIII B3s ff ff I 16s")
+ENTRY_SIZE = 72
 assert ENTRY_STRUCT.size == ENTRY_SIZE, ENTRY_STRUCT.size
 
 DTYPE_F16 = 1
 DTYPE_F32 = 2
 
 FLAG_EMBED_NORMALIZED = 1 << 0
-FLAG_PINNED = 1 << 0  # IndexEntry.flags
+# IndexEntry.flags bits
+FLAG_PINNED = 1 << 0
+FLAG_SUPERSEDED = 1 << 1
+FLAG_CONTRADICTED = 1 << 2
+FLAG_STALE = 1 << 3          # past valid_until
+FLAG_FLAGGED = 1 << 4        # injection-scan flagged
 
 # Core type codes are stable; plugin-defined types should use codes >= 64.
 TYPE_CODES = {
@@ -102,6 +108,8 @@ class IndexEntry:
     type_code: int = 0
     ctime_unix: float = 0.0
     mtime_unix: float = 0.0
+    confidence: float = 1.0
+    as_of_unix: float = 0.0
     flags: int = 0
     name_hash: bytes = b"\x00" * 16
 
@@ -110,20 +118,36 @@ class IndexEntry:
             self.name_off, self.name_len, self.desc_off, self.desc_len,
             self.body_off, self.body_len, self.src_path_off, self.src_path_len,
             self.type_code, b"\x00\x00\x00",
-            self.ctime_unix, self.mtime_unix, self.flags, self.name_hash,
+            self.ctime_unix, self.mtime_unix, self.confidence, self.as_of_unix,
+            self.flags, self.name_hash,
         )
 
     @classmethod
     def unpack_from(cls, buf, offset: int) -> "IndexEntry":
         (name_off, name_len, desc_off, desc_len, body_off, body_len,
          src_path_off, src_path_len, type_code, _pad,
-         ctime_unix, mtime_unix, flags, name_hash) = ENTRY_STRUCT.unpack_from(buf, offset)
+         ctime_unix, mtime_unix, confidence, as_of_unix, flags, name_hash) = \
+            ENTRY_STRUCT.unpack_from(buf, offset)
         return cls(name_off=name_off, name_len=name_len, desc_off=desc_off,
                    desc_len=desc_len, body_off=body_off, body_len=body_len,
                    src_path_off=src_path_off, src_path_len=src_path_len,
                    type_code=type_code, ctime_unix=ctime_unix, mtime_unix=mtime_unix,
+                   confidence=confidence, as_of_unix=as_of_unix,
                    flags=flags, name_hash=name_hash)
 
 
 def align_up(n: int, to: int = PAGE) -> int:
     return (n + to - 1) & ~(to - 1)
+
+
+def file_version(path) -> int | None:
+    """Cheaply read a ``.psmem``'s format version (magic+version only) without a
+    full open — lets callers rebuild a stale index after a format bump."""
+    try:
+        with open(path, "rb") as f:
+            head = f.read(6)
+    except OSError:
+        return None
+    if len(head) < 6 or head[:4] != MAGIC:
+        return None
+    return struct.unpack_from("<H", head, 4)[0]
