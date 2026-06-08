@@ -12,6 +12,10 @@ Providers:
 - ollama            : a local model server (base_url, default localhost:11434).
 - claude_cli        : shell out to the Claude Code CLI on this machine (no key).
 
+**Local-first default:** if nothing is configured but a local **ollama** server is
+running, PriorStates uses it automatically (zero config) — keeping answers private and
+on-machine. Explicit `ai.json` always wins. See docs/local-ai.md.
+
 All stdlib — no extra dependencies.
 """
 from __future__ import annotations
@@ -19,6 +23,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+import time
 import urllib.request
 from pathlib import Path
 
@@ -55,8 +60,53 @@ def save_ai(cfg, data: dict) -> None:
     os.replace(tmp, p)
 
 
-def configured(cfg, ai: dict | None = None) -> bool:
+_OLLAMA_CACHE: dict = {}
+_OLLAMA_PREFER = ("qwen2.5", "llama3.1", "llama3", "qwen2", "mistral", "gemma")
+
+
+def _ollama_models(base_url: str, timeout: float = 0.6) -> list[str]:
+    """Models on a local ollama server (cached 60s). [] if it's not running."""
+    now = time.time()
+    hit = _OLLAMA_CACHE.get(base_url)
+    if hit and hit[0] > now:
+        return hit[1]
+    models: list[str] = []
+    try:
+        req = urllib.request.Request(base_url.rstrip("/") + "/api/tags")
+        with urllib.request.urlopen(req, timeout=timeout) as r:   # noqa: S310 (localhost)
+            data = json.loads(r.read().decode("utf-8"))
+        models = [m.get("name") for m in data.get("models", []) if m.get("name")]
+    except Exception:
+        models = []
+    _OLLAMA_CACHE[base_url] = (now + 60, models)
+    return models
+
+
+def _pick_ollama_model(models: list[str]) -> str:
+    for fam in _OLLAMA_PREFER:
+        for m in models:
+            if m.startswith(fam):
+                return m
+    return models[0] if models else _DEFAULT_MODELS["ollama"]
+
+
+def resolve_ai(cfg, ai: dict | None = None) -> dict:
+    """The AI config we'll actually use: an explicit `ai.json` (if it names a provider)
+    wins; otherwise, if a local ollama server is running, use it automatically
+    (zero-config, private, local). Returns {} when nothing is available."""
     ai = load_ai(cfg) if ai is None else ai
+    if (ai or {}).get("provider"):
+        return ai
+    base = (ai or {}).get("base_url") or "http://localhost:11434"
+    models = _ollama_models(base)
+    if models:
+        return {"provider": "ollama", "model": _pick_ollama_model(models),
+                "base_url": base, "_auto": True}
+    return ai or {}
+
+
+def configured(cfg, ai: dict | None = None) -> bool:
+    ai = resolve_ai(cfg, ai)
     prov = (ai or {}).get("provider")
     if prov in ("ollama", "claude_cli"):
         return True
@@ -81,8 +131,9 @@ def _post_json(url: str, payload: dict, headers: dict, timeout: int = 90) -> dic
 
 
 def answer(cfg, question: str, context: str, ai: dict | None = None) -> str:
-    """Synthesize an answer from `context` using the locally configured AI."""
-    ai = load_ai(cfg) if ai is None else ai
+    """Synthesize an answer from `context` using the locally configured AI (or an
+    auto-detected local ollama server)."""
+    ai = resolve_ai(cfg, ai)
     prov = (ai or {}).get("provider")
     model = (ai or {}).get("model") or _DEFAULT_MODELS.get(prov, "")
     prompt = f"CONTEXT:\n{context}\n\nQUESTION: {question}"
