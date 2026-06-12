@@ -22,6 +22,13 @@ class Adapter:
     home_marker: Path          # existence ⇒ agent is installed
     project_context_name: str  # per-project context filename (e.g. AGENTS.md)
     launch_cli: str = ""       # CLI to open a path in the editor (if it is one)
+    # Extra (key, value) pairs merged into this agent's MCP server spec
+    # (e.g. VSCode wants an explicit "type": "stdio" in user mcp.json).
+    spec_extra: tuple = ()
+    # Header written ONCE when creating a home context file that needs one to be
+    # honored (e.g. VSCode *.instructions.md YAML frontmatter). Never rewritten,
+    # so user edits to an existing file are preserved.
+    context_preamble: str = ""
 
 
 def _h(p: str) -> Path:
@@ -58,6 +65,23 @@ def _claude_desktop_paths() -> tuple[Path, Path]:
 
 
 _CLAUDE_DESKTOP, _CLAUDE_DESKTOP_MARKER = _claude_desktop_paths()
+
+
+def _vscode_user_dir() -> Path:
+    """VSCode's per-user settings dir (holds mcp.json + prompts/), per platform."""
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "Code" / "User"
+    if os.name == "nt":
+        appdata = Path(os.environ.get("APPDATA") or (Path.home() / "AppData" / "Roaming"))
+        return appdata / "Code" / "User"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config")) / "Code" / "User"
+
+
+_VSCODE_USER = _vscode_user_dir()
+
+# YAML frontmatter that makes a VSCode instructions file apply to every chat
+# request (https://code.visualstudio.com/docs/agent-customization/custom-instructions).
+_VSCODE_INSTRUCTIONS_PREAMBLE = '---\napplyTo: "**"\n---\n\n'
 
 
 ADAPTERS: dict[str, Adapter] = {
@@ -113,6 +137,48 @@ ADAPTERS: dict[str, Adapter] = {
         project_context_name="AGENTS.md",
         launch_cli="antigravity",
     ),
+    # VSCode (GitHub Copilot Chat). User-profile mcp.json with top-level key
+    # "servers" (NOT mcpServers) and an explicit "type": "stdio". Instructions
+    # surface: a user-profile prompts/*.instructions.md with `applyTo: "**"`
+    # frontmatter (applies across workspaces); per-project fallback is
+    # .github/copilot-instructions.md.
+    "vscode": Adapter(
+        name="vscode",
+        mcp_config=_VSCODE_USER / "mcp.json",
+        mcp_format="json",
+        mcp_key="servers",
+        context_files=(_VSCODE_USER / "prompts" / "priorstates.instructions.md",),
+        home_marker=_VSCODE_USER,
+        project_context_name=".github/copilot-instructions.md",
+        launch_cli="code",
+        spec_extra=(("type", "stdio"),),
+        context_preamble=_VSCODE_INSTRUCTIONS_PREAMBLE,
+    ),
+    # Cursor. Global MCP config at ~/.cursor/mcp.json; global rules live in the
+    # settings GUI (no file surface), so home context is MCP-only; project
+    # context via AGENTS.md (supported by current builds).
+    "cursor": Adapter(
+        name="cursor",
+        mcp_config=_h(".cursor/mcp.json"),
+        mcp_format="json",
+        mcp_key="mcpServers",
+        context_files=(),
+        home_marker=_h(".cursor"),
+        project_context_name="AGENTS.md",
+        launch_cli="cursor",
+    ),
+    # Windsurf (Codeium). MCP config under ~/.codeium/windsurf; Cascade reads
+    # global rules from memories/global_rules.md — a real home context surface.
+    "windsurf": Adapter(
+        name="windsurf",
+        mcp_config=_h(".codeium/windsurf/mcp_config.json"),
+        mcp_format="json",
+        mcp_key="mcpServers",
+        context_files=(_h(".codeium/windsurf/memories/global_rules.md"),),
+        home_marker=_h(".codeium/windsurf"),
+        project_context_name="AGENTS.md",
+        launch_cli="windsurf",
+    ),
 }
 
 
@@ -123,12 +189,21 @@ def detect_installed() -> list[str]:
 
 def pinned_targets(config) -> list[Path]:
     """Context files the pinned block should be written into (enabled agents),
-    plus the per-project context files when in a project."""
+    plus the per-project context files when in a project. Every caller writes
+    into these files, so context files that need a one-time header to be
+    honored (Adapter.context_preamble) are created here when missing."""
     targets: list[Path] = []
     for name in config.agents_enabled:
         a = ADAPTERS.get(name)
         if not a:
             continue
+        # Only when the agent is actually present: creating the file for an
+        # absent agent would create its home_marker dir and fake "installed".
+        if a.context_preamble and a.home_marker.exists():
+            for t in a.context_files:
+                if not t.exists():
+                    t.parent.mkdir(parents=True, exist_ok=True)
+                    t.write_text(a.context_preamble, encoding="utf-8")
         targets.extend(a.context_files)
         # empty project_context_name (e.g. claude_desktop) → no per-project file;
         # joining "" would yield the project dir itself and crash write_block.

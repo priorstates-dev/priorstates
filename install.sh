@@ -1,22 +1,23 @@
 #!/usr/bin/env bash
-# PriorStates installer. Installs the package, initializes data dirs, and (with
-# --wire) registers the MCP server + pinned block into your AI agents.
+# PriorStates installer. Installs the package, initializes data dirs, and wires
+# the MCP server + pinned block into every detected AI agent (install-and-forget).
 #
-#   ./install.sh                     # install + `priorstates init`
+#   ./install.sh                     # install + init + wire all detected agents
 #   ./install.sh --extras            # also install onnx + mcp + pandas extras
 #   ./install.sh --model             # also download the semantic embedding model
-#   ./install.sh --wire              # also run `priorstates agents install`
-#   ./install.sh --extras --model --wire   # the works
+#   ./install.sh --no-wire           # skip agent wiring
+#   ./install.sh --extras --model    # the works
 set -euo pipefail
 cd "$(dirname "$0")"
 HERE="$(pwd)"
 
-EXTRAS=0; MODEL=0; WIRE=0
+EXTRAS=0; MODEL=0; WIRE=1
 for a in "$@"; do
   case "$a" in
-    --extras) EXTRAS=1 ;;
-    --model)  MODEL=1 ;;
-    --wire)   WIRE=1 ;;
+    --extras)  EXTRAS=1 ;;
+    --model)   MODEL=1 ;;
+    --wire)    WIRE=1 ;;   # legacy no-op (wiring is the default now)
+    --no-wire) WIRE=0 ;;
     *) echo "unknown flag: $a"; exit 2 ;;
   esac
 done
@@ -63,16 +64,15 @@ fi
 PM="$PY -m priorstates"
 
 echo "==> priorstates init"
-$PM init
+if [ "$WIRE" = 1 ]; then
+  $PM init            # wires every detected agent by default
+else
+  $PM init --no-wire
+fi
 
 if [ "$MODEL" = 1 ]; then
   echo "==> downloading embedding model"
-  $PM init --download-model
-fi
-
-if [ "$WIRE" = 1 ]; then
-  echo "==> wiring agents"
-  $PM agents install || true
+  $PM init --download-model --no-wire
 fi
 
 # Desktop/app-menu launcher for the GUI (Linux: writes a .desktop + a Desktop

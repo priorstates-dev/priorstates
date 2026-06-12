@@ -206,6 +206,21 @@ def _agent_context_targets(config, a) -> list[Path]:
     return targets
 
 
+def _ensure_context_preamble(a: Adapter, targets: list[Path]) -> None:
+    """Create home context files that need a header (e.g. VSCode instructions
+    frontmatter) BEFORE any block is appended. Only on first creation — an
+    existing file is the user's and is never rewritten. (No present-agent guard
+    here: install()/protocol() already resolve to present agents unless the user
+    explicitly names one — and an explicit install writes the MCP config under
+    the marker dir anyway, so the file must get its header too.)"""
+    if not a.context_preamble:
+        return
+    for t in targets:
+        if t in a.context_files and not t.exists():
+            t.parent.mkdir(parents=True, exist_ok=True)
+            t.write_text(a.context_preamble, encoding="utf-8")
+
+
 def install(config, agents: list[str] | None = None, *, protocol: bool = True) -> list[dict]:
     from ..memory.api import render_pinned, reindex
     from ..memory.pinned import write_marked_block
@@ -219,8 +234,9 @@ def install(config, agents: list[str] | None = None, *, protocol: bool = True) -
     out = []
     for name in _resolve_agents(config, agents):
         a = ADAPTERS[name]
-        mcp_status = _register(a, spec)
+        mcp_status = _register(a, {**spec, **dict(a.spec_extra)})
         targets = _agent_context_targets(config, a)
+        _ensure_context_preamble(a, targets)
         _, n = render_pinned(config, targets=targets)
         if protocol:
             for t in targets:
@@ -257,6 +273,8 @@ def protocol(config, agents: list[str] | None = None, *, on: bool = True) -> lis
     for name in _resolve_agents(config, agents):
         a = ADAPTERS[name]
         targets = _agent_context_targets(config, a)
+        if on:
+            _ensure_context_preamble(a, targets)
         for t in targets:
             if on:
                 write_marked_block(t, block, PROTOCOL_BEGIN, PROTOCOL_END)

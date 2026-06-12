@@ -43,7 +43,24 @@ def cmd_init(args):
 
     if args.download_model:
         _download_model()
-    print("done. Next: `priorstates agents install`  then  `priorstates cockpit`.")
+
+    # Install-and-forget: wire every DETECTED agent by default, so one `init`
+    # gives all AI tools on the machine the shared memory. Opt out: --no-wire.
+    if not getattr(args, "no_wire", False):
+        from .agents.adapters import detect_installed
+        from .agents.install import install as agents_install
+        cfg = load_config()
+        present = [a for a in detect_installed() if a in cfg.agents_enabled]
+        if present:
+            for r in agents_install(cfg, present):
+                print(f"wired {r['agent']:<14} mcp: {r['mcp']}")
+            _warn_if_mcp_missing()
+            print("done. Restart your agents/editors to pick up the memory. "
+                  "Then: `priorstates cockpit`.")
+        else:
+            print("no AI agents detected to wire (re-run `priorstates agents install` later).")
+    else:
+        print("done. Next: `priorstates agents install`  then  `priorstates cockpit`.")
 
 
 MODEL_FILES = ["onnx/model.onnx", "tokenizer.json", "config.json",
@@ -1059,6 +1076,8 @@ def build_parser():
     pi.add_argument("path", nargs="?", help="project root (default: cwd)")
     pi.add_argument("--global-only", action="store_true")
     pi.add_argument("--download-model", action="store_true", help="fetch the ONNX embedding model")
+    pi.add_argument("--no-wire", action="store_true",
+                    help="do NOT auto-wire detected AI agents (default wires them all)")
     pi.set_defaults(func=cmd_init)
 
     pm = sub.add_parser("memory", help="manage memories")
