@@ -95,7 +95,31 @@ if command -v pkgbuild >/dev/null 2>&1 && command -v productbuild >/dev/null 2>&
     --identifier "$ID" --version "$VER" --install-location "$LOC" \
     "$WORK/priorstates-core.pkg" >/dev/null
   write_distribution "$WORK/Distribution"
-  productbuild --distribution "$WORK/Distribution" --package-path "$WORK" "$PKG" >/dev/null
+  # Sign with a Developer ID Installer identity if provided, so Gatekeeper
+  # accepts it without the right-click→Open dance. Set:
+  #   PRIORSTATES_PKG_SIGN_ID="Developer ID Installer: NAME (TEAMID)"
+  # Find the exact string with: security find-identity -v | grep "Developer ID Installer"
+  if [ -n "${PRIORSTATES_PKG_SIGN_ID:-}" ]; then
+    echo "==> signing installer as: $PRIORSTATES_PKG_SIGN_ID"
+    productbuild --distribution "$WORK/Distribution" --package-path "$WORK" \
+      --sign "$PRIORSTATES_PKG_SIGN_ID" "$PKG" >/dev/null
+  else
+    echo "==> (unsigned — set PRIORSTATES_PKG_SIGN_ID to sign)"
+    productbuild --distribution "$WORK/Distribution" --package-path "$WORK" "$PKG" >/dev/null
+  fi
+  # Notarize + staple if a stored notarytool credential profile is provided, so
+  # the pkg passes Gatekeeper with no warning at all. One-time setup on the Mac:
+  #   xcrun notarytool store-credentials priorstates-notary \
+  #       --apple-id <id> --team-id <TEAMID> --password <app-specific-password>
+  # then build with PRIORSTATES_NOTARY_PROFILE=priorstates-notary.
+  if [ -n "${PRIORSTATES_PKG_SIGN_ID:-}" ] && [ -n "${PRIORSTATES_NOTARY_PROFILE:-}" ]; then
+    echo "==> notarizing (notarytool, may take a few minutes)..."
+    if xcrun notarytool submit "$PKG" --keychain-profile "$PRIORSTATES_NOTARY_PROFILE" --wait; then
+      xcrun stapler staple "$PKG" && echo "==> notarized + stapled"
+    else
+      echo "!! notarization failed — pkg is signed but not notarized (check the log above)"
+    fi
+  fi
 else
   # Linux: hand-assemble the flat package with xar + mkbom + cpio
   for t in xar mkbom cpio gzip; do
