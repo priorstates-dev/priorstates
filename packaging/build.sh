@@ -6,6 +6,8 @@
 #                              wheel + install.sh (creates a venv, no index,
 #                              wires detected agents by default)
 #   priorstates_<ver>_all.deb  Debian/Ubuntu package with app-menu launcher
+#   priorstates-<ver>.pkg      macOS installer package (double-clickable;
+#                              same per-user install as the tarball)
 #   SHA256SUMS
 #
 # (The Windows Setup.exe builds on Windows — see the release runbook; it is
@@ -42,7 +44,19 @@ else
   echo "!! dpkg-deb not found — skipping .deb (run on Debian/Ubuntu)"
 fi
 
-# Emit a SHA256SUMS over everything for the website.
-( cd "$OUT" && command -v sha256sum >/dev/null 2>&1 && sha256sum ./*.tar.gz ./*.deb 2>/dev/null > SHA256SUMS || true )
+# ---- macOS .pkg (xar+mkbom on Linux, pkgbuild on macOS) --------------------
+echo "==> building macOS .pkg"
+bash "$HERE/macos/build-pkg.sh" >/dev/null \
+  && ls -1 "$OUT"/*.pkg 2>/dev/null | sed 's/^/    /' \
+  || echo "!! .pkg build failed (need xar + bomutils — see packaging/macos/build-pkg.sh)"
 
-echo; echo "Done. Artifacts in $OUT:"; ls -1 "$OUT" | grep -E '\.(tar\.gz|deb)$' | sed 's/^/    /'
+# ---- RHEL/Rocky/Alma/Fedora noarch .rpm ------------------------------------
+echo "==> building .rpm"
+bash "$HERE/rpm/build-rpm.sh" >/dev/null \
+  && ls -1 "$OUT"/*.rpm 2>/dev/null | sed 's/^/    /' \
+  || echo "!! .rpm build failed (need rpmbuild or docker — see packaging/rpm/build-rpm.sh)"
+
+# Emit a SHA256SUMS over everything for the website.
+( cd "$OUT" && command -v sha256sum >/dev/null 2>&1 && sha256sum ./*.tar.gz ./*.deb ./*.pkg ./*.rpm 2>/dev/null > SHA256SUMS || true )
+
+echo; echo "Done. Artifacts in $OUT:"; ls -1 "$OUT" | grep -E '\.(tar\.gz|deb|pkg|rpm)$' | sed 's/^/    /'

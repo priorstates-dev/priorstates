@@ -14,7 +14,7 @@ RSH="ssh ${SSH_OPTS:-}"
 
 STAGE="$(mktemp -d)"
 shopt -s nullglob
-for f in "$REPO"/build/*.tar.gz "$REPO"/build/*.deb; do
+for f in "$REPO"/build/*.tar.gz "$REPO"/build/*.deb "$REPO"/build/*.pkg "$REPO"/build/*.rpm; do
   cp "$f" "$STAGE/"
 done
 shopt -u nullglob
@@ -28,7 +28,7 @@ set -euo pipefail
 sudo mkdir -p /var/www/priorstates-dl
 sudo rsync -a /tmp/ps-dl-oss/ /var/www/priorstates-dl/
 # regenerate checksums over everything currently hosted
-( cd /var/www/priorstates-dl && sudo sh -c 'sha256sum *.tar.gz *.deb *.exe *.pkg 2>/dev/null > SHA256SUMS' )
+( cd /var/www/priorstates-dl && sudo sh -c 'sha256sum *.tar.gz *.deb *.exe *.pkg *.rpm 2>/dev/null > SHA256SUMS' )
 sudo chown -R www-data:www-data /var/www/priorstates-dl
 echo "published. hosted artifacts:"; ls -1 /var/www/priorstates-dl
 REMOTE

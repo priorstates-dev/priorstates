@@ -54,6 +54,14 @@ package once — `PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --user mcp`; the app 
 
 `sudo apt remove priorstates` uninstalls. Re-running the same `apt install`
 upgrades in place.
+
+**RHEL / Rocky / Alma / Fedora** — same experience via the `.rpm` (one noarch
+package for all of them; on EL9 it pulls `python3.12` automatically):
+
+```bash
+curl -fSLO https://priorstates.com/download/priorstates-0.1.14-1.noarch.rpm
+sudo dnf install ./priorstates-0.1.14-1.noarch.rpm
+```
 </details>
 
 <details>
