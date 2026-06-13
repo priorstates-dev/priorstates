@@ -67,54 +67,91 @@ MODEL_FILES = ["onnx/model.onnx", "tokenizer.json", "config.json",
                "tokenizer_config.json", "vocab.txt", "special_tokens_map.json"]
 
 
-def _http_download(url: str, out: Path):
+def _http_download(url: str, out: Path, retries: int = 3):
+    import time
     import urllib.request
-    req = urllib.request.Request(url, headers={"User-Agent": "priorstates/0.1"})
     out.parent.mkdir(parents=True, exist_ok=True)
     tmp = out.with_suffix(out.suffix + ".part")
     tty = sys.stdout.isatty()
-    with urllib.request.urlopen(req, timeout=120) as r:
-        total = int(r.headers.get("Content-Length") or 0)
-        done = 0
-        with open(tmp, "wb") as f:
-            while True:
-                chunk = r.read(1 << 18)
-                if not chunk:
-                    break
-                f.write(chunk)
-                done += len(chunk)
-                if tty and total:  # live bar only on a real terminal
-                    print(f"\r    {out.name}: {int(done * 100 / total):3d}%  ({done >> 20} MB)",
-                          end="", flush=True)
-    if tty and total:
-        print()
-    os.replace(tmp, out)
-    mb = done / (1 << 20)
-    print(f"    {out.name}: {mb:.1f} MB" if mb >= 1 else f"    {out.name}: ok")
+    last_err = None
+    for attempt in range(1, retries + 1):
+        try:
+            req = urllib.request.Request(url, headers={"User-Agent": "priorstates/0.1"})
+            with urllib.request.urlopen(req, timeout=120) as r:
+                total = int(r.headers.get("Content-Length") or 0)
+                done = 0
+                with open(tmp, "wb") as f:
+                    while True:
+                        chunk = r.read(1 << 18)
+                        if not chunk:
+                            break
+                        f.write(chunk)
+                        done += len(chunk)
+                        if tty and total:  # live bar only on a real terminal
+                            print(f"\r    {out.name}: {int(done * 100 / total):3d}%  ({done >> 20} MB)",
+                                  end="", flush=True)
+            if tty and total:
+                print()
+            os.replace(tmp, out)
+            mb = done / (1 << 20)
+            print(f"    {out.name}: {mb:.1f} MB" if mb >= 1 else f"    {out.name}: ok")
+            return
+        except Exception as e:  # noqa: BLE001 — retry any transient HTTP/network error
+            last_err = e
+            tmp.unlink(missing_ok=True)
+            if attempt < retries:
+                wait = 2 ** attempt  # 2s, 4s — rides out HF rate-limit blips
+                if tty:
+                    print(f"\r    {out.name}: attempt {attempt} failed ({e}); retrying in {wait}s...")
+                time.sleep(wait)
+    raise last_err
 
 
 def _download_model():
     home = home_dir()
     dest = home / "models" / "bge-small-en-v1.5"
     repo = os.environ.get("PRIORSTATES_HF_REPO", "BAAI/bge-small-en-v1.5")
-    base = os.environ.get("PRIORSTATES_HF_BASE", "https://huggingface.co")
-    print(f"downloading {repo} -> {dest} (~127 MB)...")
+    # Sources tried IN ORDER. Our own mirror is primary — it has no HuggingFace
+    # rate limits, so the model arrives reliably on a fresh install; HF is the
+    # fallback. Override the primary with PRIORSTATES_MODEL_BASE, or force HF by
+    # pointing it there. `<base>/bge-small-en-v1.5/<rel>` is the layout.
+    mirror = os.environ.get("PRIORSTATES_MODEL_BASE",
+                            "https://priorstates.com/download/models")
+    hf_base = os.environ.get("PRIORSTATES_HF_BASE", "https://huggingface.co")
+    sources = [
+        ("priorstates.com", lambda rel: f"{mirror}/bge-small-en-v1.5/{rel}"),
+        ("huggingface.co",  lambda rel: f"{hf_base}/{repo}/resolve/main/{rel}"),
+    ]
+    print(f"downloading bge-small-en-v1.5 -> {dest} (~127 MB)...")
 
-    # Fast path: huggingface_hub if it happens to be installed.
-    try:
-        from huggingface_hub import snapshot_download
-        snapshot_download(repo, local_dir=str(dest), allow_patterns=MODEL_FILES)
-    except Exception:
-        # Stdlib path: fetch the needed files directly (no extra dependency).
+    ok = False
+    last_err = None
+    for name, url_for in sources:
         try:
             for rel in MODEL_FILES:
-                _http_download(f"{base}/{repo}/resolve/main/{rel}", dest / rel)
-        except Exception as e:
-            print(f"\ncould not download model ({e}).")
-            print(f"  Check your network, or place the ONNX model + tokenizer under {dest}/ "
-                  f"manually (files: {', '.join(MODEL_FILES)}).")
-            print("  The hashing fallback keeps working meanwhile.")
-            return
+                _http_download(url_for(rel), dest / rel)
+            ok = True
+            break
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+            print(f"  source {name} failed ({e}); trying next...")
+
+    if not ok:
+        # Last resort: huggingface_hub if it happens to be installed (resumable).
+        try:
+            from huggingface_hub import snapshot_download
+            snapshot_download(repo, local_dir=str(dest), allow_patterns=MODEL_FILES)
+            ok = True
+        except Exception as e:  # noqa: BLE001
+            last_err = e
+
+    if not ok:
+        print(f"\ncould not download model ({last_err}).")
+        print(f"  Check your network, or place the ONNX model + tokenizer under {dest}/ "
+              f"manually (files: {', '.join(MODEL_FILES)}).")
+        print("  The hashing fallback keeps working meanwhile; re-run "
+              "`priorstates init --download-model` to retry.")
+        return
 
     onnx = dest / "onnx" / "model.onnx"
     if not onnx.exists() or onnx.stat().st_size < 1_000_000:
