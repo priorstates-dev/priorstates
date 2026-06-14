@@ -26,7 +26,14 @@ import numpy as np
 
 DEFAULT_DIM = 384
 DEFAULT_MAX_LEN = 512
-_TOKEN_RE = re.compile(r"[a-z0-9]+")
+# Unicode-aware word run: letters/digits in ANY script (Latin, Cyrillic, Greek,
+# Arabic, Hebrew, Devanagari, …) — not just ASCII. CJK is handled separately
+# below because those scripts don't delimit words with spaces.
+_TOKEN_RE = re.compile(r"\w+", re.UNICODE)
+# Han / Hiragana / Katakana / Hangul ranges. Text in these scripts is segmented
+# into per-character unigrams + bigrams so identical/overlapping strings still
+# produce overlapping features (a whole-run token would only match verbatim).
+_CJK_RE = re.compile(r"[぀-ヿ㐀-䶿一-鿿豈-﫿가-힣]")
 
 
 # --------------------------------------------------------------------------- #
@@ -44,15 +51,24 @@ class HashingEmbedder:
 
     def _features(self, text: str):
         text = text.lower()
-        toks = _TOKEN_RE.findall(text)
-        # whole words
-        for t in toks:
-            yield "w:" + t
-        # word bigrams (a little phrase signal)
-        for a, b in zip(toks, toks[1:]):
+        words: list[str] = []
+        for run in _TOKEN_RE.findall(text):
+            if _CJK_RE.search(run):
+                # CJK run → char unigrams + adjacent char bigrams carry the signal
+                chars = list(run)
+                for c in chars:
+                    yield "w:" + c
+                for a, b in zip(chars, chars[1:]):
+                    yield "g:" + a + b
+            else:
+                yield "w:" + run
+            words.append(run)
+        # word bigrams (a little phrase signal) between successive runs
+        for a, b in zip(words, words[1:]):
             yield "b:" + a + "_" + b
-        # character trigrams over the joined token stream (typo/substring signal)
-        joined = " ".join(toks)
+        # character trigrams (typo/substring signal) over the non-CJK stream —
+        # CJK already has its own char features above
+        joined = " ".join(w for w in words if not _CJK_RE.search(w))
         for i in range(len(joined) - 2):
             yield "c:" + joined[i:i + 3]
 
