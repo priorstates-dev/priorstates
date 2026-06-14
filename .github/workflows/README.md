@@ -76,6 +76,12 @@ GitHub Releases host the installers. The website keeps branded
 step and no deploy key in CI**. The last `release.yml` step just curls those
 branded URLs to confirm the new release is reachable.
 
+## Build one platform only
+
+From **Actions → release → Run workflow**, set **only** to `windows`, `macos`, or
+`linux` to build just that installer (the GitHub Release step is skipped). Handy for
+testing a platform-specific fix without re-running the slow macOS notarization.
+
 ## Cutting a release
 
 ```bash

@@ -13,7 +13,12 @@ name: release
 on:
   push:
     tags: ['v*']
-  workflow_dispatch: {}
+  workflow_dispatch:
+    inputs:
+      only:
+        description: 'Build one platform only (linux | macos | windows). Blank = all. Skips the GitHub Release.'
+        required: false
+        default: ''
 
 permissions:
   contents: write          # create the GitHub Release (+ tag on manual runs)
@@ -40,6 +45,7 @@ jobs:
 
   linux:
     needs: prep
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'linux' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -67,6 +73,7 @@ jobs:
 
   macos:
     needs: prep
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'macos' }}
     runs-on: macos-latest          # Apple Silicon; the .pkg is arch-independent
     steps:
       - uses: actions/checkout@v4
@@ -127,6 +134,7 @@ jobs:
 
   windows:
     needs: prep
+    if: ${{ github.event_name != 'workflow_dispatch' || inputs.only == '' || inputs.only == 'windows' }}
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
