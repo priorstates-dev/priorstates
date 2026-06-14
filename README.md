@@ -141,6 +141,15 @@ default embedder is **CPU-only and offline** — no API keys, no telemetry, no c
 calls. Upgrade to semantic recall with a single optional ~127&nbsp;MB model download
 whenever you want.
 
+**Removing it removes what it added.** Uninstalling (Windows uninstaller, or the
+`.pkg`/tarball `install.sh --uninstall`) runs `priorstates agents uninstall` for
+you — taking the MCP server entry and the pinned instruction block back out of
+every agent it wired. Your memory under `~/.priorstates/` is left untouched. You
+can unwire (or re-wire) any time with `priorstates agents uninstall` /
+`priorstates agents install`. *(For the system `.deb`/`.rpm`, run `priorstates
+agents uninstall` as your user before `apt`/`dnf remove`, since package removal
+runs as root and can't reach your per-user agent config.)*
+
 ## Share a pack
 
 Export your memory + journal as a portable bundle and hand it to a teammate (or

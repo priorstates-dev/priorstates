@@ -87,6 +87,14 @@ MSG
 fi
 exit 0
 
+%preun
+# $1 == 0 on full removal (not upgrade): remind the user to unwire their AI agents
+# (the MCP config is per-user; this root-run scriptlet can't reach it).
+if [ "$1" = 0 ]; then
+  echo "PriorStates: to also unwire your AI agents, run as your user:  priorstates agents uninstall" >&2
+fi
+exit 0
+
 %postun
 command -v update-desktop-database >/dev/null 2>&1 && update-desktop-database -q /usr/share/applications >/dev/null 2>&1 || :
 command -v gtk-update-icon-cache >/dev/null 2>&1 && gtk-update-icon-cache -f -t -q /usr/share/icons/hicolor >/dev/null 2>&1 || :

@@ -219,6 +219,11 @@ POST
 cat > "$STAGE/DEBIAN/prerm" <<'PRE'
 #!/bin/sh
 set -e
+# On full removal (not upgrade), remind the user to unwire their AI agents — the
+# MCP config is per-user (in their home), which this root-run script can't touch.
+if [ "$1" = remove ]; then
+  echo "PriorStates: to also unwire your AI agents, run as your user:  priorstates agents uninstall" >&2
+fi
 command -v py3clean >/dev/null 2>&1 && py3clean -p priorstates >/dev/null 2>&1 || true
 exit 0
 PRE
