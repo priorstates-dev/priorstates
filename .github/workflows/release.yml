@@ -77,41 +77,50 @@ jobs:
           python -m pip install -q --upgrade pip
           python -m pip wheel --no-deps -w build/wheels .
 
-      # ---- OPTIONAL: sign + notarize (needs an Apple Developer membership) ----
-      # Add these repo secrets, then uncomment this block AND the env: on the
-      # build step below:
-      #   APPLE_INSTALLER_CERT_P12_BASE64  base64 of the "Developer ID Installer" .p12
-      #   APPLE_CERT_PASSWORD              its export password
-      #   APPLE_INSTALLER_IDENTITY         e.g. "Developer ID Installer: ACME Inc (TEAMID)"
-      #   APPLE_NOTARY_KEY_P8_BASE64       base64 of the App Store Connect API key (.p8)
-      #   APPLE_NOTARY_KEY_ID              the key id
-      #   APPLE_NOTARY_ISSUER_ID           the issuer id
-      # - name: import installer cert
-      #   env:
-      #     CERT: ${{ secrets.APPLE_INSTALLER_CERT_P12_BASE64 }}
-      #     PW:   ${{ secrets.APPLE_CERT_PASSWORD }}
-      #   run: |
-      #     echo "$CERT" | base64 -d > cert.p12
-      #     security create-keychain -p ci build.keychain
-      #     security default-keychain -s build.keychain
-      #     security unlock-keychain -p ci build.keychain
-      #     security import cert.p12 -k build.keychain -P "$PW" -T /usr/bin/productsign
-      #     security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
-      # - name: store notarytool profile
-      #   env:
-      #     KEY: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-      #     KID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-      #     ISS: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
-      #   run: |
-      #     echo "$KEY" | base64 -d > notary.p8
-      #     xcrun notarytool store-credentials priorstates-notary \
-      #       --key notary.p8 --key-id "$KID" --issuer "$ISS"
+      # ---- Sign (+ optionally notarize) the .pkg with a Developer ID Installer
+      # certificate. Gated on the APPLE_INSTALLER_IDENTITY repo variable, so it
+      # auto-skips (ships unsigned) until configured. One-time setup (see the
+      # workflows README):
+      #   secret APPLE_INSTALLER_CERT_P12_BASE64  base64 of the .p12 (cert + PRIVATE KEY)
+      #   secret APPLE_CERT_PASSWORD              the .p12 export password
+      #   var    APPLE_INSTALLER_IDENTITY         "Developer ID Installer: NAME (TEAMID)"
+      # Optional notarization (fully clears Gatekeeper for downloaded pkgs):
+      #   var    APPLE_NOTARIZE = true
+      #   secrets APPLE_NOTARY_KEY_P8_BASE64 / APPLE_NOTARY_KEY_ID / APPLE_NOTARY_ISSUER_ID
+      - name: import Developer ID Installer cert
+        if: ${{ vars.APPLE_INSTALLER_IDENTITY != '' }}
+        env:
+          CERT: ${{ secrets.APPLE_INSTALLER_CERT_P12_BASE64 }}
+          PW:   ${{ secrets.APPLE_CERT_PASSWORD }}
+        run: |
+          KC="$RUNNER_TEMP/build.keychain-db"
+          echo "$CERT" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p ci "$KC"
+          security set-keychain-settings -lut 21600 "$KC"
+          security unlock-keychain -p ci "$KC"
+          security import "$RUNNER_TEMP/cert.p12" -k "$KC" -P "$PW" \
+            -T /usr/bin/productsign -T /usr/bin/productbuild
+          security set-key-partition-list -S apple-tool:,apple: -s -k ci "$KC" >/dev/null
+          # Put our keychain first in the search list so productbuild finds the identity.
+          security list-keychains -d user -s "$KC" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v "$KC" | grep "Developer ID Installer" || \
+            { echo "::error::Developer ID Installer identity not found in the imported .p12 (is the private key included?)"; exit 1; }
+      - name: store notarytool profile
+        if: ${{ vars.APPLE_NOTARIZE == 'true' }}
+        env:
+          KEY: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+          KID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+          ISS: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+        run: |
+          echo "$KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
+          xcrun notarytool store-credentials priorstates-notary \
+            --key "$RUNNER_TEMP/notary.p8" --key-id "$KID" --issuer "$ISS"
 
       - name: build .pkg
-        # Uncomment to sign + notarize (build-pkg.sh reads these env vars):
-        # env:
-        #   PRIORSTATES_PKG_SIGN_ID:    ${{ secrets.APPLE_INSTALLER_IDENTITY }}
-        #   PRIORSTATES_NOTARY_PROFILE: priorstates-notary
+        env:
+          # Empty when the var is unset → build-pkg.sh builds an unsigned .pkg.
+          PRIORSTATES_PKG_SIGN_ID:    ${{ vars.APPLE_INSTALLER_IDENTITY }}
+          PRIORSTATES_NOTARY_PROFILE: ${{ vars.APPLE_NOTARIZE == 'true' && 'priorstates-notary' || '' }}
         run: bash packaging/macos/build-pkg.sh
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: build/*.pkg, if-no-files-found: error }

@@ -20,9 +20,32 @@ It builds every installer from the recipes in [`packaging/`](../../packaging):
 stable-named copies** (`PriorStates-Setup.exe`, `priorstates-latest.*`) so the
 `releases/latest/download/<name>` URLs are version-free.
 
-**Installers ship unsigned by default.** The Windows job is wired for
-**SignPath** code signing (free for OSS) — it auto-skips until enrolled. macOS
-signing/notarization is a commented block (needs an Apple Developer membership).
+**Installers ship unsigned by default.** Both the Windows (**SignPath**) and
+macOS (**Developer ID**) signing paths are wired and auto-skip until configured.
+
+### Enable macOS signing (Developer ID Installer)
+
+Needs an Apple Developer membership and a **Developer ID Installer** certificate.
+The certificate is held in SignPath-style secrets and the cloud runner signs the
+`.pkg`; you must supply the cert **with its private key** as a `.p12`.
+
+1. On the Mac that has the cert + key in Keychain Access, select the
+   *Developer ID Installer* certificate **and its private key**, right-click →
+   **Export 2 items…** → save a password-protected `.p12`. (A `.cer` alone is the
+   public certificate and cannot sign.)
+2. Add to this repo:
+   - secret **`APPLE_INSTALLER_CERT_P12_BASE64`** = `base64 -i cert.p12` (the whole file)
+   - secret **`APPLE_CERT_PASSWORD`** = the `.p12` export password
+   - variable **`APPLE_INSTALLER_IDENTITY`** = the exact identity, e.g.
+     `Developer ID Installer: ZHENDONG QIN (LGT8FC5ZZZ)` (this turns the steps on)
+3. Optional — **notarize** (clears Gatekeeper fully for downloaded pkgs): create an
+   App Store Connect API key, then add secrets **`APPLE_NOTARY_KEY_P8_BASE64`**,
+   **`APPLE_NOTARY_KEY_ID`**, **`APPLE_NOTARY_ISSUER_ID`** and variable
+   **`APPLE_NOTARIZE`** = `true`.
+
+The next tagged release then ships a signed (and, if enabled, notarized) `.pkg`.
+
+### Enable Windows signing (SignPath, free for OSS)
 
 ### Enable Windows signing (SignPath, free for OSS)
 
