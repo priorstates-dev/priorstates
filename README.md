@@ -39,58 +39,69 @@ one-liner / `pip` / tarball stay in your home. (Only the Linux `.deb`/`.rpm` use
 `sudo`, since that's how system packages work.)
 
 <details open>
-<summary><b>🐧 Linux (Debian / Ubuntu) — the <code>.deb</code> (recommended)</b></summary>
+<summary><b>🐧 Linux — Debian/Ubuntu <code>.deb</code> · RHEL/Fedora <code>.rpm</code></b></summary>
 
-Apt pulls in `python3` + `numpy`, and you get the desktop app, an icon, the
-`priorstates` CLI and man pages — nothing else to install:
+The package pulls in `python3` + `numpy`, and you get the desktop app, an icon,
+the `priorstates` CLI and man pages:
 
 ```bash
+# Debian / Ubuntu
 curl -fSLO https://priorstates.com/download/priorstates-latest.deb
-sudo apt install -y ./priorstates-latest.deb   # resolves python3 (>= 3.10) + python3-numpy
-```
+sudo apt install -y ./priorstates-latest.deb
 
-Then just **open “PriorStates” from your application menu** (or run
-`priorstates-gui`). The desktop control panel does the rest — initialize your
-memory, wire Claude / Codex / Gemini over MCP, and launch the cockpit, all with a
-click. No further commands needed. (For agent integration it needs the MCP support
-package once — `PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --user mcp`; the app flags it if it's missing.)
-
-`sudo apt remove priorstates` uninstalls. Re-running the same `apt install`
-upgrades in place.
-
-**RHEL / Rocky / Alma / Fedora** — same experience via the `.rpm` (one noarch
-package for all of them; on EL9 it pulls `python3.12` automatically):
-
-```bash
+# RHEL / Rocky / Alma / Fedora  (one noarch package; EL9 pulls python3.12)
 curl -fSLO https://priorstates.com/download/priorstates-latest.noarch.rpm
 sudo dnf install ./priorstates-latest.noarch.rpm
 ```
+
+Then open **“PriorStates”** from your app menu (or run `priorstates-gui`). For
+agent integration it needs the MCP package once —
+`PIP_BREAK_SYSTEM_PACKAGES=1 pip3 install --user mcp`. `sudo apt remove priorstates`
+(or `dnf remove`) uninstalls. **No root?** Use the one-liner or `pipx` below — both
+install per-user, no `sudo`.
 </details>
 
 <details>
-<summary><b>🪟 Windows — the one-click installer (easiest of all)</b></summary>
+<summary><b>🍎 macOS — the <code>.pkg</code> (no admin password)</b></summary>
+
+Download **[priorstates-latest.pkg](https://github.com/priorstates-dev/priorstates/releases/latest/download/priorstates-latest.pkg)**
+and double-click. It's **“install for me only” — no admin** (signed & notarized by
+Apple, so no Gatekeeper prompt). Uninstall any time with
+`sh ~/Library/PriorStates/install.sh --uninstall`.
+</details>
+
+<details>
+<summary><b>🪟 Windows — <code>Setup.exe</code>, or no-exe via <code>pipx</code></b></summary>
 
 Download and run
 **[PriorStates-Setup.exe](https://github.com/priorstates-dev/priorstates/releases/latest/download/PriorStates-Setup.exe)**
-— it auto-installs Python if you don't have it, then installs PriorStates and adds
-Start Menu + Desktop shortcuts. Nothing else required.
+— per-user (**no admin**), auto-installs Python if needed, adds Start Menu + Desktop
+shortcuts. Windows builds use free code signing by the
+[SignPath Foundation](https://signpath.org/).
 
-The Windows installer uses free code signing provided by [SignPath.io](https://signpath.io/),
-with a certificate by the [SignPath Foundation](https://signpath.org/).
+**Corporate / locked-down Windows that blocks `.exe`?** PriorStates is a Python
+package — install with no installer at all:
+
+```powershell
+py -m pip install --user pipx
+py -m pipx install priorstates
+priorstates init
+```
+
+(Also publishing to **winget**: `winget install PriorStates.PriorStates`.)
 </details>
 
 <details>
-<summary><b>🍎 macOS / any OS with Python 3.10+ — pip</b></summary>
+<summary><b>📦 Any OS with Python 3.10+ — pip / pipx</b></summary>
 
 ```bash
-PIP_BREAK_SYSTEM_PACKAGES=1 pip install --user --no-cache-dir "priorstates @ git+https://github.com/priorstates-dev/priorstates.git"
-priorstates init            # create ~/.priorstates + per-project .priorstates/
-priorstates agents install  # wire Claude / Codex / Gemini over MCP
-priorstates cockpit         # open the web cockpit → http://127.0.0.1:7700
+pip install -U priorstates        # or: pipx install priorstates
+priorstates init                  # wire Claude / Codex / Gemini over MCP
+priorstates cockpit               # web cockpit → http://127.0.0.1:7700
 ```
 
-macOS also has a native `.pkg` / Homebrew formula — see
-[docs/QUICKSTART.md](docs/QUICKSTART.md).
+On Debian/Ubuntu (PEP 668) use `pipx install priorstates` (or add
+`--user --break-system-packages` to pip).
 </details>
 
 Full install matrix (`.deb` / macOS `.pkg` / Windows / source) is in
