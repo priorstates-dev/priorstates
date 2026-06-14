@@ -117,11 +117,15 @@ if command -v pkgbuild >/dev/null 2>&1 && command -v productbuild >/dev/null 2>&
   #       --apple-id <id> --team-id <TEAMID> --password <app-specific-password>
   # then build with PRIORSTATES_NOTARY_PROFILE=priorstates-notary.
   if [ -n "${PRIORSTATES_PKG_SIGN_ID:-}" ] && [ -n "${PRIORSTATES_NOTARY_PROFILE:-}" ]; then
-    echo "==> notarizing (notarytool, may take a few minutes)..."
-    if xcrun notarytool submit "$PKG" --keychain-profile "$PRIORSTATES_NOTARY_PROFILE" --wait; then
+    # --timeout caps the wait so a stuck/backlogged Apple notarization can never
+    # hang the build indefinitely; on timeout/failure we keep the SIGNED .pkg.
+    echo "==> notarizing (notarytool --wait, up to ${PRIORSTATES_NOTARY_TIMEOUT:-30m})..."
+    if xcrun notarytool submit "$PKG" --keychain-profile "$PRIORSTATES_NOTARY_PROFILE" \
+         --wait --timeout "${PRIORSTATES_NOTARY_TIMEOUT:-30m}"; then
       xcrun stapler staple "$PKG" && echo "==> notarized + stapled"
     else
-      echo "!! notarization failed — pkg is signed but not notarized (check the log above)"
+      echo "!! notarization did not complete (timeout or rejection) — shipping the SIGNED .pkg"
+      echo "   un-stapled; check status later: xcrun notarytool history --keychain-profile $PRIORSTATES_NOTARY_PROFILE"
     fi
   fi
 else
