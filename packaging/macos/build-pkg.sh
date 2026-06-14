@@ -4,6 +4,10 @@
 # and its postinstall runs install.sh as the logged-in user — same per-user
 # venv install as the tarball, but double-clickable in Installer.app.
 #
+# install.sh creates the CLI launchers AND a ~/Applications/PriorStates.app
+# bundle (per-user, no admin), so after install the app shows up in Launchpad /
+# Spotlight / Finder. (Generic app icon for now — no bundled .icns.)
+#
 #   packaging/macos/build-pkg.sh        # → build/priorstates-<ver>.pkg
 #
 # Builds on macOS (pkgbuild/productbuild) OR on Linux with xar + mkbom

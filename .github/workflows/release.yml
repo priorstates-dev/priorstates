@@ -1,0 +1,227 @@
+name: release
+
+# Build every platform installer and attach them to a GitHub Release.
+#
+# Trigger: push a tag `vX.Y.Z` (must match pyproject `version`), or run manually
+# (workflow_dispatch) to build from the current pyproject version.
+#
+# Public repo → Linux/macOS/Windows runner minutes are free. NO secrets are
+# required: the installers ship UNSIGNED (same as today — macOS "right-click →
+# Open", Windows SmartScreen "More info → Run"). To sign + notarize later, fill
+# in the secrets named in the commented blocks below; nothing else changes.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch: {}
+
+permissions:
+  contents: write          # create the GitHub Release (+ tag on manual runs)
+
+jobs:
+  prep:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      tag: ${{ steps.v.outputs.tag }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: v
+        shell: bash
+        run: |
+          VER="$(grep -m1 '^version' pyproject.toml | sed 's/.*"\(.*\)".*/\1/')"
+          echo "version=$VER" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VER"    >> "$GITHUB_OUTPUT"
+          # On a tag push the tag MUST equal the pyproject version.
+          if [ "${GITHUB_REF_TYPE:-}" = tag ] && [ "$GITHUB_REF_NAME" != "v$VER" ]; then
+            echo "::error::tag $GITHUB_REF_NAME != pyproject version v$VER — bump one of them"; exit 1
+          fi
+          echo "building v$VER"
+
+  linux:
+    needs: prep
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: tooling
+        run: |
+          sudo apt-get update -qq
+          # dpkg-deb is preinstalled; `rpm` provides rpmbuild for the noarch .rpm
+          # (build-rpm.sh falls back to a rockylinux:9 container if it's absent).
+          sudo apt-get install -y -qq rpm
+          python -m pip install -q --upgrade pip
+      - name: build .tar.gz + .deb + .rpm
+        # build.sh also attempts a Linux xar .pkg; that step fails gracefully here
+        # (no bomutils) and we ship the real .pkg from the macOS runner instead.
+        run: bash packaging/build.sh
+      - uses: actions/upload-artifact@v4
+        with:
+          name: linux
+          if-no-files-found: error
+          path: |
+            build/*.tar.gz
+            build/*.deb
+            build/*.rpm
+
+  macos:
+    needs: prep
+    runs-on: macos-latest          # Apple Silicon; the .pkg is arch-independent
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: build the bundled wheel
+        run: |
+          python -m pip install -q --upgrade pip
+          python -m pip wheel --no-deps -w build/wheels .
+
+      # ---- OPTIONAL: sign + notarize (needs an Apple Developer membership) ----
+      # Add these repo secrets, then uncomment this block AND the env: on the
+      # build step below:
+      #   APPLE_INSTALLER_CERT_P12_BASE64  base64 of the "Developer ID Installer" .p12
+      #   APPLE_CERT_PASSWORD              its export password
+      #   APPLE_INSTALLER_IDENTITY         e.g. "Developer ID Installer: ACME Inc (TEAMID)"
+      #   APPLE_NOTARY_KEY_P8_BASE64       base64 of the App Store Connect API key (.p8)
+      #   APPLE_NOTARY_KEY_ID              the key id
+      #   APPLE_NOTARY_ISSUER_ID           the issuer id
+      # - name: import installer cert
+      #   env:
+      #     CERT: ${{ secrets.APPLE_INSTALLER_CERT_P12_BASE64 }}
+      #     PW:   ${{ secrets.APPLE_CERT_PASSWORD }}
+      #   run: |
+      #     echo "$CERT" | base64 -d > cert.p12
+      #     security create-keychain -p ci build.keychain
+      #     security default-keychain -s build.keychain
+      #     security unlock-keychain -p ci build.keychain
+      #     security import cert.p12 -k build.keychain -P "$PW" -T /usr/bin/productsign
+      #     security set-key-partition-list -S apple-tool:,apple: -s -k ci build.keychain
+      # - name: store notarytool profile
+      #   env:
+      #     KEY: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
+      #     KID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
+      #     ISS: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+      #   run: |
+      #     echo "$KEY" | base64 -d > notary.p8
+      #     xcrun notarytool store-credentials priorstates-notary \
+      #       --key notary.p8 --key-id "$KID" --issuer "$ISS"
+
+      - name: build .pkg
+        # Uncomment to sign + notarize (build-pkg.sh reads these env vars):
+        # env:
+        #   PRIORSTATES_PKG_SIGN_ID:    ${{ secrets.APPLE_INSTALLER_IDENTITY }}
+        #   PRIORSTATES_NOTARY_PROFILE: priorstates-notary
+        run: bash packaging/macos/build-pkg.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: macos, path: build/*.pkg, if-no-files-found: error }
+
+  windows:
+    needs: prep
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: '3.12' }
+      - name: build the bundled wheel
+        shell: bash
+        run: |
+          python -m pip install -q --upgrade pip
+          mkdir -p build/windows
+          python -m pip wheel --no-deps -w build/windows .
+      - name: install Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: build Setup.exe
+        shell: pwsh
+        run: |
+          $ver = "${{ needs.prep.outputs.version }}"
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" /Q "/DMyAppVersion=$ver" packaging\windows\priorstates.iss
+
+      # ---- OPTIONAL: Authenticode sign (needs a code-signing cert) ----
+      # Secrets: WINDOWS_CERT_PFX_BASE64 (base64 of the .pfx), WINDOWS_CERT_PASSWORD.
+      # SignPath.io issues free certs for OSS projects if you don't have one.
+      # - name: sign installer
+      #   shell: pwsh
+      #   env:
+      #     PFX: ${{ secrets.WINDOWS_CERT_PFX_BASE64 }}
+      #     PW:  ${{ secrets.WINDOWS_CERT_PASSWORD }}
+      #   run: |
+      #     [IO.File]::WriteAllBytes("cert.pfx", [Convert]::FromBase64String($env:PFX))
+      #     $st = "${env:ProgramFiles(x86)}\Windows Kits\10\bin\x64\signtool.exe"
+      #     & $st sign /f cert.pfx /p $env:PW /tr http://timestamp.digicert.com /td sha256 /fd sha256 `
+      #       "build\windows\PriorStates-${{ needs.prep.outputs.version }}-Setup.exe"
+
+      - uses: actions/upload-artifact@v4
+        with: { name: windows, path: build/windows/*.exe, if-no-files-found: error }
+
+  github-release:
+    needs: [prep, linux, macos, windows]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: dist, merge-multiple: true }
+      - name: checksums
+        run: cd dist && sha256sum * > SHA256SUMS
+      - name: list
+        run: ls -l dist
+      - uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ needs.prep.outputs.tag }}
+          name: ${{ needs.prep.outputs.tag }}
+          generate_release_notes: true
+          files: dist/*
+
+  # Mirror the freshly-built installers to priorstates.com/download/ with the
+  # stable aliases (priorstates-latest.*, PriorStates-Setup.exe) and verify every
+  # link resolves. Runs in THIS workflow run (a Release made with GITHUB_TOKEN
+  # would not trigger a separate `on: release` workflow). Gated on deploy secrets
+  # — without them the GitHub Release still publishes; the mirror just skips.
+  mirror-downloads:
+    needs: [prep, github-release]
+    runs-on: ubuntu-latest
+    env:
+      DEPLOY_KEY: ${{ secrets.DOWNLOADS_DEPLOY_KEY }}
+      DL_HOST: ${{ secrets.DOWNLOADS_HOST }}
+    steps:
+      - name: guard — skip if deploy secrets are not set
+        id: g
+        run: |
+          if [ -z "$DEPLOY_KEY" ] || [ -z "$DL_HOST" ]; then
+            echo "deploy secrets unset — GitHub Release published, skipping /download/ mirror."
+            echo "go=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go=true" >> "$GITHUB_OUTPUT"
+          fi
+      - if: steps.g.outputs.go == 'true'
+        uses: actions/checkout@v4
+      - name: fetch built installers → build/ layout
+        if: steps.g.outputs.go == 'true'
+        uses: actions/download-artifact@v4
+        with: { path: _dl, merge-multiple: true }
+      - name: arrange + install deploy key
+        if: steps.g.outputs.go == 'true'
+        run: |
+          mkdir -p build/windows
+          shopt -s nullglob
+          for f in _dl/*; do
+            case "$f" in
+              *.exe)                       mv "$f" build/windows/ ;;
+              *.tar.gz|*.deb|*.rpm|*.pkg)  mv "$f" build/ ;;
+            esac
+          done
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_KEY" > ~/.ssh/dl_key
+          chmod 600 ~/.ssh/dl_key
+      - name: publish to /download/ + verify links
+        if: steps.g.outputs.go == 'true'
+        run: |
+          export SSH_OPTS="-i $HOME/.ssh/dl_key -o StrictHostKeyChecking=accept-new"
+          bash packaging/publish-downloads.sh "$DL_HOST"
+          fail=0
+          for p in priorstates-latest.deb priorstates-latest.noarch.rpm \
+                   priorstates-latest.tar.gz priorstates-latest.pkg \
+                   PriorStates-Setup.exe SHA256SUMS; do
+            code="$(curl -s -o /dev/null -w '%{http_code}' -IL "https://priorstates.com/download/$p")"
+            echo "  $p -> $code"; [ "$code" = 200 ] || fail=1
+          done
+          [ "$fail" = 0 ] || { echo "::error::some /download/ links are not 200"; exit 1; }

@@ -36,6 +36,7 @@ OutputBaseFilename=PriorStates-{#MyAppVersion}-Setup
 Compression=lzma2
 SolidCompression=yes
 WizardStyle=modern
+SetupIconFile=PriorStates.ico
 ArchitecturesAllowed=x64compatible
 ArchitecturesInstallIn64BitMode=x64compatible
 
@@ -46,37 +47,22 @@ Name: "semantic"; Description: "Enable &semantic recall (downloads a ~127 MB emb
 
 [Files]
 Source: "..\..\build\windows\{#Wheel}"; DestDir: "{app}"; Flags: ignoreversion
+; App icon for the Start Menu / Desktop shortcuts (the "memory stack" mark).
+Source: "PriorStates.ico"; DestDir: "{app}"; Flags: ignoreversion
 
 [Icons]
 ; pythonw.exe (no console) -m priorstates gui, pinned to the install interpreter.
-Name: "{group}\PriorStates";        Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; Comment: "PriorStates desktop GUI"
-Name: "{group}\PriorStates Cockpit (web)"; Filename: "{cmd}";     Parameters: "{code:CockpitParams}"; Comment: "Run the web cockpit"
+Name: "{group}\PriorStates";        Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; IconFilename: "{app}\PriorStates.ico"; Comment: "PriorStates desktop GUI"
+Name: "{group}\PriorStates Cockpit (web)"; Filename: "{cmd}";     Parameters: "{code:CockpitParams}"; IconFilename: "{app}\PriorStates.ico"; Comment: "Run the web cockpit"
 Name: "{group}\Uninstall PriorStates"; Filename: "{uninstallexe}"
-Name: "{autodesktop}\PriorStates";  Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; Tasks: desktopicon
+Name: "{autodesktop}\PriorStates";  Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; WorkingDir: "{userdocs}"; IconFilename: "{app}\PriorStates.ico"; Tasks: desktopicon
 
 [Run]
-; Install the bundled wheel into the user's Python, then initialize data dirs.
-Filename: "{code:GetPyExe}"; Parameters: "{code:PipInstallArgs}"; \
-  StatusMsg: "Installing PriorStates into your Python..."; Flags: runhidden waituntilterminated
-Filename: "{code:GetPyExe}"; Parameters: "-m priorstates init --no-wire"; \
-  StatusMsg: "Initializing PriorStates..."; Flags: runhidden waituntilterminated
-; pywinpty gives the cockpit's embedded terminal a real TTY (so interactive CLIs
-; like codex work). Windows-only; small prebuilt wheel.
-Filename: "{code:GetPyExe}"; Parameters: "-m pip install --user pywinpty"; \
-  StatusMsg: "Installing cockpit terminal support..."; Flags: runhidden waituntilterminated
-; Optional: install the MCP runtime + register it into any Claude / Codex / Gemini
-; so wired agents actually get the PriorStates tools.
-Filename: "{code:GetPyExe}"; Parameters: "{code:McpInstallArgs}"; \
-  StatusMsg: "Installing MCP support..."; Flags: runhidden waituntilterminated; Tasks: wireagents
-Filename: "{code:GetPyExe}"; Parameters: "{code:AgentsArgs}"; \
-  StatusMsg: "Connecting your AI agents over MCP..."; Flags: runhidden waituntilterminated; Tasks: wireagents
-; Semantic recall: inference libs + the local embedding model (~127 MB). Both
-; non-fatal -- the hashing embedder keeps working if these fail; re-run
-; `priorstates init --download-model` any time.
-Filename: "{code:GetPyExe}"; Parameters: "-m pip install --user onnxruntime tokenizers"; \
-  StatusMsg: "Installing semantic recall libraries..."; Flags: runhidden waituntilterminated; Tasks: semantic
-Filename: "{code:GetPyExe}"; Parameters: "-m priorstates init --download-model --no-wire"; \
-  StatusMsg: "Downloading the semantic recall model (~127 MB, runs locally)..."; Flags: runhidden waituntilterminated; Tasks: semantic
+; The heavy steps (pip installs + the ~127 MB model download) are driven from
+; [Code] CurStepChanged(ssPostInstall) so a real, moving progress bar is shown
+; (see RunInstallSteps). The wizard's own bar only tracks [Files] extraction --
+; one tiny wheel -- so on its own it snaps to 100% and then sits there for
+; minutes while these blocking steps run. Only the final GUI launch stays here.
 Filename: "{code:GetPyExeW}"; Parameters: "-m priorstates gui"; \
   Description: "Launch PriorStates now"; Flags: postinstall nowait skipifsilent
 
@@ -93,6 +79,7 @@ var
   PyExe: String;    { absolute python.exe of the install interpreter }
   PyExeW: String;   { absolute pythonw.exe (no console); falls back to PyExe }
   DownloadPage: TDownloadWizardPage;
+  ProgressPage: TOutputProgressWizardPage;  { real bar for the slow pip/model steps }
 
 { Find a usable Python (>=3.10) on PATH. Prefers the 'py' launcher. '' if none. }
 function DetectPy(): String;
@@ -233,6 +220,9 @@ procedure InitializeWizard();
 begin
   DownloadPage := CreateDownloadPage(SetupMessage(msgWizardPreparing),
                                      SetupMessage(msgPreparingDesc), nil);
+  ProgressPage := CreateOutputProgressPage('Setting up PriorStates',
+    'Installing into your Python.' +
+    #13#10 + 'This can take a few minutes; please leave the window open.');
 end;
 
 { Detect Python; if absent, download + silently install it (per-user). Returns
@@ -299,4 +289,60 @@ begin
     exit;
   { Pin every shortcut to this exact interpreter (not a floating launcher). }
   ResolveAbsPython();
+end;
+
+{ Run one blocking install step with the progress bar advanced + labelled first,
+  so the user sees real progress instead of a frozen 100%. Failures are
+  non-fatal (matches the old [Run] waituntilterminated behaviour: a failed
+  optional step never aborts the install). }
+procedure RunStep(Page: TOutputProgressWizardPage; Step, Total: Integer;
+                  Msg, Args: String);
+var
+  rc: Integer;
+begin
+  Page.SetText(Msg, '');
+  Page.SetProgress(Step, Total);
+  Exec(GetPyExe(''), Args, '', SW_HIDE, ewWaitUntilTerminated, rc);
+end;
+
+{ Drive the slow post-extraction work behind a determinate progress page. }
+procedure RunInstallSteps();
+var
+  Total, Step: Integer;
+  DoAgents, DoSemantic: Boolean;
+begin
+  DoAgents := WizardIsTaskSelected('wireagents');
+  DoSemantic := WizardIsTaskSelected('semantic');
+
+  Total := 3;
+  if DoAgents then Total := Total + 2;
+  if DoSemantic then Total := Total + 2;
+
+  ProgressPage.Show;
+  try
+    Step := 1; RunStep(ProgressPage, Step, Total, 'Installing PriorStates into your Python...', PipInstallArgs(''));
+    Step := 2; RunStep(ProgressPage, Step, Total, 'Initializing PriorStates...', '-m priorstates init --no-wire');
+    Step := 3; RunStep(ProgressPage, Step, Total, 'Installing cockpit terminal support...', '-m pip install --user pywinpty');
+    if DoAgents then
+    begin
+      Inc(Step); RunStep(ProgressPage, Step, Total, 'Installing MCP support...', McpInstallArgs(''));
+      Inc(Step); RunStep(ProgressPage, Step, Total, 'Connecting your AI agents over MCP...', AgentsArgs(''));
+    end;
+    if DoSemantic then
+    begin
+      Inc(Step); RunStep(ProgressPage, Step, Total, 'Installing semantic recall libraries...', '-m pip install --user onnxruntime tokenizers');
+      Inc(Step); RunStep(ProgressPage, Step, Total, 'Downloading the semantic recall model (~127 MB, runs locally)...', '-m priorstates init --download-model --no-wire');
+    end;
+    ProgressPage.SetProgress(Total, Total);
+  finally
+    ProgressPage.Hide;
+  end;
+end;
+
+procedure CurStepChanged(CurStep: TSetupStep);
+begin
+  { ssPostInstall fires after [Files] extraction, so the bundled wheel is on
+    disk for pip install --find-links / the absolute-path install. }
+  if CurStep = ssPostInstall then
+    RunInstallSteps();
 end;

@@ -137,6 +137,16 @@ class PriorStatesGUI:
         root.title("PriorStates — shared memory & research journal for your AI agents")
         root.geometry("1140x710")
         root.minsize(940, 600)
+        # Window / taskbar / dock icon (the "memory stack" mark). Keep a reference
+        # on self so Tk doesn't garbage-collect the image. Best-effort: a missing
+        # asset or an old Tk without PNG support must never break the GUI.
+        try:
+            _icon = Path(__file__).resolve().parent.parent / "assets" / "icon.png"
+            if _icon.exists():
+                self._iconimg = tk.PhotoImage(file=str(_icon))
+                root.iconphoto(True, self._iconimg)
+        except Exception:
+            pass
         self._cockpits = {}      # {project: {proc, port, allow_open}} — one cockpit each
         self._connections = []
 

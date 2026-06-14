@@ -11,14 +11,29 @@ HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"
 HOST="${1:?usage: publish-downloads.sh ubuntu@HOST   (SSH_OPTS for the key)}"
 RSH="ssh ${SSH_OPTS:-}"
+VER="$(grep -m1 '^version' "$REPO/pyproject.toml" | sed 's/.*"\(.*\)".*/\1/')"
 
 STAGE="$(mktemp -d)"
 shopt -s nullglob
-for f in "$REPO"/build/*.tar.gz "$REPO"/build/*.deb "$REPO"/build/*.pkg "$REPO"/build/*.rpm; do
+# Windows .exe is built on a separate box; the runbook stages it into
+# build/windows/ on this host BEFORE publishing (so it ships to /download/ too).
+for f in "$REPO"/build/*.tar.gz "$REPO"/build/*.deb "$REPO"/build/*.pkg \
+         "$REPO"/build/*.rpm "$REPO"/build/windows/*.exe; do
   cp "$f" "$STAGE/"
 done
 shopt -u nullglob
 [ -n "$(ls -A "$STAGE")" ] || { echo "!! nothing to publish — run packaging/build.sh first"; exit 1; }
+
+# Stable "latest" aliases so download.html links are version-free and never go
+# stale. Derived from the current pyproject version, so they always point at this
+# build's artifacts. Each missing artifact (e.g. no .exe this run) is skipped.
+mk_alias() { [ -f "$STAGE/$1" ] && cp "$STAGE/$1" "$STAGE/$2" && echo "    alias $2 → $1"; }
+echo "==> stable aliases (v$VER):"
+mk_alias "priorstates_${VER}_all.deb"      "priorstates-latest.deb"          || true
+mk_alias "priorstates-${VER}-1.noarch.rpm" "priorstates-latest.noarch.rpm"   || true
+mk_alias "priorstates-${VER}.tar.gz"       "priorstates-latest.tar.gz"       || true
+mk_alias "priorstates-${VER}.pkg"          "priorstates-latest.pkg"          || true
+mk_alias "PriorStates-${VER}-Setup.exe"    "PriorStates-Setup.exe"           || true
 
 echo "==> uploading:"; ls -1 "$STAGE" | sed 's/^/    /'
 ssh ${SSH_OPTS:-} "$HOST" "rm -rf /tmp/ps-dl-oss && mkdir -p /tmp/ps-dl-oss"

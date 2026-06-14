@@ -891,13 +891,41 @@ def _which(x):
 # --------------------------------------------------------------------------- #
 # desktop launcher
 # --------------------------------------------------------------------------- #
-ICON_SVG = """<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="#0d1117"/>
-  <circle cx="64" cy="58" r="30" fill="none" stroke="#58a6ff" stroke-width="6"/>
-  <circle cx="64" cy="58" r="12" fill="#3fb950"/>
-  <line x1="86" y1="80" x2="104" y2="98" stroke="#58a6ff" stroke-width="8" stroke-linecap="round"/>
+# The "memory stack" mark — three stacked rounded layers = prior states over
+# time. Canonical source is priorstates/assets/icon.svg (shared with the GUI
+# window, macOS .icns, Windows .ico and the website logo); this inline copy is a
+# fallback for installs where the asset isn't readable.
+_ICON_SVG_FALLBACK = """<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#161b22"/><stop offset="1" stop-color="#0d1117"/>
+    </linearGradient>
+    <linearGradient id="top" x1="0" y1="0" x2="1" y2="0">
+      <stop offset="0" stop-color="#58a6ff"/><stop offset="1" stop-color="#388bfd"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="url(#bg)"/>
+  <rect x="28" y="81" width="72" height="18" rx="7" fill="#1f6feb" opacity="0.40"/>
+  <rect x="28" y="55" width="72" height="18" rx="7" fill="#1f6feb" opacity="0.68"/>
+  <rect x="28" y="29" width="72" height="18" rx="7" fill="url(#top)"/>
+  <circle cx="42" cy="38" r="4.5" fill="#3fb950"/>
 </svg>
 """
+
+
+def _asset(name: str) -> Path:
+    """A bundled icon asset (ships as package-data under priorstates/assets/)."""
+    return Path(__file__).resolve().parent / "assets" / name
+
+
+def _load_icon_svg() -> str:
+    try:
+        return _asset("icon.svg").read_text(encoding="utf-8")
+    except Exception:
+        return _ICON_SVG_FALLBACK
+
+
+ICON_SVG = _load_icon_svg()
 
 
 def _xdg_data_home() -> Path:
@@ -1026,6 +1054,8 @@ def cmd_install_launcher_windows(args):
 
     target = _windows_pythonw()
     workdir = str(Path.home())
+    ico = _asset("PriorStates.ico")
+    icon_line = f"$sc.IconLocation={ps_q(str(ico))};" if ico.exists() else ""
     desktop_line = (
         "$paths+=[Environment]::GetFolderPath('Desktop')+'\\PriorStates.lnk';"
         if args.desktop else "")
@@ -1039,6 +1069,7 @@ def cmd_install_launcher_windows(args):
         f"$sc.TargetPath={ps_q(target)};"
         "$sc.Arguments='-m priorstates gui';"
         f"$sc.WorkingDirectory={ps_q(workdir)};"
+        f"{icon_line}"
         "$sc.Description='PriorStates - AI memory & journal cockpit';"
         "$sc.Save();Write-Output $p}")
     r = _run_powershell(script)
@@ -1055,15 +1086,78 @@ def cmd_install_launcher_windows(args):
         print(f"You can always run the GUI with:  \"{target}\" -m priorstates gui")
 
 
+def cmd_install_launcher_macos(args):
+    """Create (or remove) ~/Applications/PriorStates.app.
+
+    Per-user (no admin), so every install path — pip, the curl one-liner, the
+    tarball and the .pkg — gets the same double-clickable launcher in Launchpad /
+    Spotlight / Finder. The bundle just execs `python -m priorstates gui`.
+    """
+    import shutil
+    app = Path.home() / "Applications" / "PriorStates.app"
+
+    if args.uninstall:
+        try:
+            if app.exists():
+                shutil.rmtree(app)
+                print(f"removed: {app}")
+            else:
+                print("removed: (nothing to remove)")
+        except OSError as e:
+            print(f"could not remove {app}: {e}")
+        return
+
+    contents = app / "Contents"
+    (contents / "MacOS").mkdir(parents=True, exist_ok=True)
+    (contents / "Resources").mkdir(parents=True, exist_ok=True)
+
+    icon_key = ""
+    icns = _asset("PriorStates.icns")
+    if icns.exists():
+        shutil.copyfile(icns, contents / "Resources" / "PriorStates.icns")
+        icon_key = "  <key>CFBundleIconFile</key><string>PriorStates</string>\n"
+
+    (contents / "Info.plist").write_text(
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" '
+        '"http://www.apple.com/DTDs/PropertyList-1.0.dtd">\n'
+        '<plist version="1.0"><dict>\n'
+        '  <key>CFBundleName</key><string>PriorStates</string>\n'
+        '  <key>CFBundleDisplayName</key><string>PriorStates</string>\n'
+        '  <key>CFBundleIdentifier</key><string>com.priorstates.priorstates.app</string>\n'
+        '  <key>CFBundleVersion</key><string>1.0</string>\n'
+        '  <key>CFBundleShortVersionString</key><string>1.0</string>\n'
+        '  <key>CFBundlePackageType</key><string>APPL</string>\n'
+        '  <key>CFBundleExecutable</key><string>PriorStates</string>\n'
+        f'{icon_key}'
+        '  <key>LSMinimumSystemVersion</key><string>11.0</string>\n'
+        '</dict></plist>\n', encoding="utf-8")
+
+    stub = contents / "MacOS" / "PriorStates"
+    # Absolute interpreter: Finder launches with a minimal PATH.
+    stub.write_text(f'#!/bin/sh\nexec "{sys.executable}" -m priorstates gui\n', encoding="utf-8")
+    stub.chmod(0o755)
+
+    # Register so it shows up immediately (Launchpad/Spotlight) without a logout.
+    lsreg = ("/System/Library/Frameworks/CoreServices.framework/Versions/A/Frameworks/"
+             "LaunchServices.framework/Versions/A/Support/lsregister")
+    if Path(lsreg).exists():
+        subprocess.run([lsreg, "-f", str(app)], check=False,
+                       stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+
+    print(f"installed launcher → {app}")
+    print(f"  find 'PriorStates' in Launchpad / Spotlight, or run: open {app}")
+    if not icon_key:
+        print("  (icon asset not found — the app will use the generic icon)")
+
+
 def cmd_install_launcher(args):
     if os.name == "nt":
         return cmd_install_launcher_windows(args)
+    if sys.platform == "darwin":
+        return cmd_install_launcher_macos(args)
     if sys.platform != "linux":
-        # macOS: the .pkg / `brew install` ships a PriorStates.app bundle; a bare
-        # pip install has no app wrapper, so just tell the user how to launch.
-        print("install-launcher builds a Linux .desktop entry / Windows shortcut.")
-        print("On macOS the GUI shortcut comes from the .pkg or `brew install` "
-              "(creates PriorStates.app).")
+        print("install-launcher builds launchers for Linux, macOS and Windows.")
         print("You can always run the GUI with:  priorstates gui")
         return
     data = _xdg_data_home()

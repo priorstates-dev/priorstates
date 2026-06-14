@@ -16,8 +16,6 @@ WHEELS="$HERE/wheels"
 DATA="${XDG_DATA_HOME:-$HOME/.local/share}/priorstates"
 VENV="$DATA/venv"
 BIN="$HOME/.local/bin"
-APPS="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
-ICONS="${XDG_DATA_HOME:-$HOME/.local/share}/icons/hicolor/scalable/apps"
 
 WIRE=1; MODEL=1
 for a in "$@"; do
@@ -25,9 +23,11 @@ for a in "$@"; do
     --no-wire) WIRE=0 ;;
     --lite|--no-model) MODEL=0 ;;
     --uninstall)
+      # Remove the desktop/app launcher via the CLI (one implementation) before
+      # the venv goes away, then drop the venv + bin wrappers.
+      "$VENV/bin/priorstates" install-launcher --uninstall >/dev/null 2>&1 || true
       rm -rf "$VENV" "$DATA"
-      rm -f "$BIN/priorstates" "$BIN/priorstates-gui" \
-            "$APPS/priorstates.desktop" "$ICONS/priorstates.svg"
+      rm -f "$BIN/priorstates" "$BIN/priorstates-gui"
       echo "PriorStates removed. (Your memory in ~/.priorstates was left intact.)"
       exit 0 ;;
     *) echo "unknown flag: $a"; exit 2 ;;
@@ -106,32 +106,11 @@ exec "$TARGET_BIN/priorstates" gui "\$@"
 SH
 chmod 0755 "$BIN/priorstates" "$BIN/priorstates-gui"
 
-# ---- desktop entry + icon (Linux) -----------------------------------------
-if [ "$(uname)" = "Linux" ]; then
-  mkdir -p "$APPS" "$ICONS"
-  cat > "$ICONS/priorstates.svg" <<'SVG'
-<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="24" fill="#0d1117"/>
-  <circle cx="64" cy="58" r="30" fill="none" stroke="#58a6ff" stroke-width="6"/>
-  <circle cx="64" cy="58" r="12" fill="#3fb950"/>
-  <line x1="86" y1="80" x2="104" y2="98" stroke="#58a6ff" stroke-width="8" stroke-linecap="round"/>
-</svg>
-SVG
-  cat > "$APPS/priorstates.desktop" <<DESK
-[Desktop Entry]
-Type=Application
-Name=PriorStates
-GenericName=AI memory & journal cockpit
-Comment=Shared local memory, research journal, mdlab and the cockpit for your AI agents
-Exec=$BIN/priorstates-gui
-Icon=priorstates
-Terminal=false
-Categories=Development;
-Keywords=AI;memory;journal;claude;codex;gemini;copilot;cursor;mcp;
-DESK
-  command -v update-desktop-database >/dev/null 2>&1 && \
-    update-desktop-database -q "$APPS" >/dev/null 2>&1 || true
-fi
+# ---- desktop / app launcher ------------------------------------------------
+# One implementation lives in the CLI (`priorstates install-launcher`): a Linux
+# .desktop entry + themed icon, or a macOS ~/Applications/PriorStates.app — both
+# using the bundled "memory stack" icon. Shared with the curl|sh web installer.
+"$TARGET_BIN/priorstates" install-launcher --desktop || true
 
 case ":$PATH:" in *":$BIN:"*) ;; *)
   echo "note: add $BIN to your PATH (e.g. echo 'export PATH=\"\$HOME/.local/bin:\$PATH\"' >> ~/.bashrc)";;
