@@ -42,7 +42,7 @@ ArchitecturesInstallIn64BitMode=x64compatible
 
 [Tasks]
 Name: "desktopicon"; Description: "Create a &Desktop shortcut"; GroupDescription: "Additional shortcuts:"
-Name: "wireagents"; Description: "&Connect PriorStates to my AI agents (Claude Code / Copilot / Cursor / Codex / Gemini / ...) over MCP"; GroupDescription: "Agent setup:"
+Name: "wireagents"; Description: "&Set up PriorStates for my AI agents (over MCP)"; GroupDescription: "Agent setup:"
 Name: "semantic"; Description: "Enable &semantic recall (downloads a ~127 MB embedding model; runs 100% locally)"; GroupDescription: "Agent setup:"
 
 [Files]
