@@ -55,22 +55,26 @@ chmod 0755 "$WORK/payload/install.sh"
 # misses brew / python.org locations. (Stays correct if some flow runs it as root.)
 cat > "$WORK/scripts/postinstall" <<'POST'
 #!/bin/bash
-set -u
+# NOTE: macOS ships bash 3.2 — no `set -u` + arrays (empty-array expansion errors).
 TARGET="${2:-$HOME/Library/PriorStates}"
 WIDE_PATH="/usr/local/bin:/opt/homebrew/bin:/Library/Frameworks/Python.framework/Versions/Current/bin:/usr/bin:/bin:/usr/sbin:/sbin"
-RUN=()
-if [ "$(id -u)" = 0 ]; then
-  CU="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || echo "")"
-  [ -n "$CU" ] && [ "$CU" != root ] && RUN=(/usr/bin/sudo -u "$CU" -H)
-fi
+# Run as the installing user. For "install for me only" the script already runs as
+# the user; if some flow runs it as root, hand off to the console user.
+as_user() {
+  if [ "$(id -u)" = 0 ]; then
+    CU="$(/usr/bin/stat -f%Su /dev/console 2>/dev/null || echo '')"
+    if [ -n "$CU" ] && [ "$CU" != root ]; then /usr/bin/sudo -u "$CU" -H "$@"; return $?; fi
+  fi
+  "$@"
+}
 echo "[priorstates] per-user setup from $TARGET"
-if "${RUN[@]}" /usr/bin/env PATH="$WIDE_PATH" /bin/bash "$TARGET/install.sh"; then
+if as_user /usr/bin/env PATH="$WIDE_PATH" /bin/bash "$TARGET/install.sh"; then
   echo "[priorstates] setup complete"
 else
   echo "[priorstates] install.sh did not finish — files are in $TARGET"
   # install.sh provisions its own Python (via uv) when none is present, so this
   # only fires on a genuine failure — most likely no internet during setup.
-  "${RUN[@]}" /usr/bin/osascript -e "display dialog \"PriorStates files were copied, but setup did not finish (no internet connection?).\n\nReconnect, then run:\n\n  sh '$TARGET/install.sh'\" buttons {\"OK\"} default button 1 with title \"PriorStates\"" >/dev/null 2>&1 || true
+  as_user /usr/bin/osascript -e "display dialog \"PriorStates files were copied, but setup did not finish (no internet connection?).\n\nReconnect, then run:\n\n  sh '$TARGET/install.sh'\" buttons {\"OK\"} default button 1 with title \"PriorStates\"" >/dev/null 2>&1 || true
 fi
 exit 0
 POST
