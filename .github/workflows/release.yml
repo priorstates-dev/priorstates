@@ -133,6 +133,25 @@ jobs:
           # repo variable (e.g. 90m) if needed; on timeout we ship the signed .pkg.
           PRIORSTATES_NOTARY_TIMEOUT: ${{ vars.APPLE_NOTARY_TIMEOUT || '60m' }}
         run: bash packaging/macos/build-pkg.sh
+      - name: verify no-admin install (install-for-me-only)
+        run: |
+          pkg="$(ls build/*.pkg | head -1)"
+          pkgutil --expand "$pkg" "$RUNNER_TEMP/ps-pkg"
+          # The home domain (no enable_localSystem) is what makes Installer.app
+          # offer "Install for me only" with no admin password.
+          if grep -q 'enable_currentUserHome="true"' "$RUNNER_TEMP/ps-pkg/Distribution" \
+             && ! grep -q 'enable_localSystem="true"' "$RUNNER_TEMP/ps-pkg/Distribution"; then
+            echo "✓ pkg is a home-domain (no-admin) install"
+          else
+            echo "::error::pkg is NOT configured for a no-admin home install"; exit 1
+          fi
+          # Best-effort end-to-end: actually install to the home WITHOUT sudo.
+          if installer -pkg "$pkg" -target CurrentUserHomeDirectory; then
+            test -f "$HOME/Library/PriorStates/install.sh" \
+              && echo "✓ no-sudo install landed in ~/Library/PriorStates"
+          else
+            echo "::warning::no-sudo install run did not finish cleanly (config gate already passed)"
+          fi
       - uses: actions/upload-artifact@v4
         with: { name: macos, path: build/*.pkg, if-no-files-found: error }
 

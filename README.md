@@ -33,7 +33,10 @@ The agent reads [`AGENT_INSTALL.md`](AGENT_INSTALL.md), installs the package, wi
 itself over MCP, and verifies with `priorstates doctor` — then restart it to load
 the new tools.
 
-**Prefer to do it yourself?** Pick your platform:
+**Prefer to do it yourself?** Pick your platform. Everything installs **per-user — no
+root/admin**: the Windows `.exe` and macOS `.pkg` are "install for me only," and the
+one-liner / `pip` / tarball stay in your home. (Only the Linux `.deb`/`.rpm` use
+`sudo`, since that's how system packages work.)
 
 <details open>
 <summary><b>🐧 Linux (Debian / Ubuntu) — the <code>.deb</code> (recommended)</b></summary>
@@ -42,8 +45,8 @@ Apt pulls in `python3` + `numpy`, and you get the desktop app, an icon, the
 `priorstates` CLI and man pages — nothing else to install:
 
 ```bash
-curl -fSLO https://priorstates.com/download/priorstates_0.1.14_all.deb
-sudo apt install -y ./priorstates_0.1.14_all.deb   # resolves python3 (>= 3.10) + python3-numpy
+curl -fSLO https://priorstates.com/download/priorstates-latest.deb
+sudo apt install -y ./priorstates-latest.deb   # resolves python3 (>= 3.10) + python3-numpy
 ```
 
 Then just **open “PriorStates” from your application menu** (or run
@@ -59,8 +62,8 @@ upgrades in place.
 package for all of them; on EL9 it pulls `python3.12` automatically):
 
 ```bash
-curl -fSLO https://priorstates.com/download/priorstates-0.1.14-1.noarch.rpm
-sudo dnf install ./priorstates-0.1.14-1.noarch.rpm
+curl -fSLO https://priorstates.com/download/priorstates-latest.noarch.rpm
+sudo dnf install ./priorstates-latest.noarch.rpm
 ```
 </details>
 
