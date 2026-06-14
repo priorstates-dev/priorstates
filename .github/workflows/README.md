@@ -38,10 +38,11 @@ The certificate is held in SignPath-style secrets and the cloud runner signs the
    - secret **`APPLE_CERT_PASSWORD`** = the `.p12` export password
    - variable **`APPLE_INSTALLER_IDENTITY`** = the exact identity, e.g.
      `Developer ID Installer: ZHENDONG QIN (LGT8FC5ZZZ)` (this turns the steps on)
-3. Optional — **notarize** (clears Gatekeeper fully for downloaded pkgs): create an
-   App Store Connect API key, then add secrets **`APPLE_NOTARY_KEY_P8_BASE64`**,
-   **`APPLE_NOTARY_KEY_ID`**, **`APPLE_NOTARY_ISSUER_ID`** and variable
-   **`APPLE_NOTARIZE`** = `true`.
+3. Optional — **notarize** (clears Gatekeeper fully for downloaded pkgs). Using an
+   Apple ID + app-specific password, add secrets **`APPLE_NOTARY_APPLE_ID`** (your
+   Apple ID email) and **`APPLE_NOTARY_APP_PASSWORD`** (an app-specific password
+   from appleid.apple.com), plus variables **`APPLE_TEAM_ID`** (e.g. `LGT8FC5ZZZ`)
+   and **`APPLE_NOTARIZE`** = `true`.
 
 The next tagged release then ships a signed (and, if enabled, notarized) `.pkg`.
 

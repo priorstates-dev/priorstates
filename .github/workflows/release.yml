@@ -86,7 +86,8 @@ jobs:
       #   var    APPLE_INSTALLER_IDENTITY         "Developer ID Installer: NAME (TEAMID)"
       # Optional notarization (fully clears Gatekeeper for downloaded pkgs):
       #   var    APPLE_NOTARIZE = true
-      #   secrets APPLE_NOTARY_KEY_P8_BASE64 / APPLE_NOTARY_KEY_ID / APPLE_NOTARY_ISSUER_ID
+      #   var    APPLE_TEAM_ID  = LGT8FC5ZZZ
+      #   secrets APPLE_NOTARY_APPLE_ID (Apple ID email) / APPLE_NOTARY_APP_PASSWORD (app-specific password)
       - name: import Developer ID Installer cert
         if: ${{ vars.APPLE_INSTALLER_IDENTITY != '' }}
         env:
@@ -108,13 +109,12 @@ jobs:
       - name: store notarytool profile
         if: ${{ vars.APPLE_NOTARIZE == 'true' }}
         env:
-          KEY: ${{ secrets.APPLE_NOTARY_KEY_P8_BASE64 }}
-          KID: ${{ secrets.APPLE_NOTARY_KEY_ID }}
-          ISS: ${{ secrets.APPLE_NOTARY_ISSUER_ID }}
+          APPLE_ID: ${{ secrets.APPLE_NOTARY_APPLE_ID }}
+          APP_PW:   ${{ secrets.APPLE_NOTARY_APP_PASSWORD }}
+          TEAM_ID:  ${{ vars.APPLE_TEAM_ID }}
         run: |
-          echo "$KEY" | base64 --decode > "$RUNNER_TEMP/notary.p8"
           xcrun notarytool store-credentials priorstates-notary \
-            --key "$RUNNER_TEMP/notary.p8" --key-id "$KID" --issuer "$ISS"
+            --apple-id "$APPLE_ID" --password "$APP_PW" --team-id "$TEAM_ID"
 
       - name: build .pkg
         env:
