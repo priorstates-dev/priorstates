@@ -12,10 +12,13 @@
 
 **Coding agents are amnesiacs** — every session starts cold, re-deriving what you
 already taught them and re-running experiments a past session already concluded.
-PriorStates gives **Claude, Codex &amp; Gemini** one **local** memory and a searchable
-**research journal**, so what one session learns, the next one remembers.
+PriorStates gives **Claude Code, Codex, Gemini, Copilot, and Cursor** (and other
+MCP clients) one **local** memory and a searchable **research journal**, so what
+one session learns, the next one remembers.
 
 Runs entirely on your machine · CPU-only · no API keys · no cloud calls.
+
+This is the open-source, local-first edition — everything runs on your machine.
 
 🌐 **[priorstates.com](https://priorstates.com)**  ·  🎬 **[80-second demo](https://priorstates.com)**  ·  📖 **[Docs](docs/USER_GUIDE.md)**
 
@@ -25,7 +28,7 @@ Runs entirely on your machine · CPU-only · no API keys · no cloud calls.
 
 ## Install — in one sentence
 
-Already using Claude, Codex, or Gemini? Hand it one line:
+Already using Claude Code, Codex, Gemini, Copilot, or Cursor? Hand it one line:
 
 > **Install PriorStates: fetch https://priorstates.com/install.md and follow it.**
 
@@ -88,7 +91,7 @@ py -m pipx install priorstates
 priorstates init
 ```
 
-(Also publishing to **winget**: `winget install PriorStates.PriorStates`.)
+(A **winget** package is coming soon: `winget install PriorStates.PriorStates`.)
 </details>
 
 <details>
@@ -96,7 +99,7 @@ priorstates init
 
 ```bash
 pip install -U priorstates        # or: pipx install priorstates
-priorstates init                  # wire Claude / Codex / Gemini over MCP
+priorstates init                  # wire Claude Code / Codex / Gemini / Copilot / Cursor over MCP
 priorstates cockpit               # web cockpit → http://127.0.0.1:7700
 ```
 
@@ -124,8 +127,9 @@ protocol by `priorstates agents install` — so they *recall* before acting and
 
 ## MCP server
 
-`priorstates agents install` registers the server into Claude / Codex / Gemini for
-you; to run it directly over stdio: **`priorstates mcp`**. It exposes 10 tools:
+`priorstates agents install` registers the server into Claude Code / Codex / Gemini /
+Copilot / Cursor for you; to run it directly over stdio: **`priorstates mcp`**. It
+exposes 10 tools:
 
 - **memory** — `memory_add` · `memory_search` · `memory_get` · `memory_list_pinned` · `memory_pin` · `memory_delete`
 - **journal** — `journal_add` · `journal_search` · `journal_regen`
@@ -141,12 +145,11 @@ The **cockpit** maps your whole research surface; the **CLI** captures and recal
 
 ## Agent-neutral
 
-One memory store and one journal, surfaced to **Claude Code · Claude Desktop · Codex ·
-Gemini · Antigravity** through MCP and a pinned context block — no lock-in, no
-rewrites. Switch agents without losing a thing. The **VS Code / JetBrains
-extensions** for Claude Code and Codex share their CLI's MCP config, so they're
-covered automatically; **Claude Desktop** (its own app) is wired into
-`claude_desktop_config.json` too. Every client on the machine reads the *same*
+One memory store and one journal, surfaced to **Claude Code, Codex, Gemini,
+Copilot, and Cursor** (and other MCP clients) through MCP and a pinned context
+block — no lock-in, no rewrites. Switch agents without losing a thing. The **VS Code
+/ JetBrains extensions** for Claude Code and Codex share their CLI's MCP config, so
+they're covered automatically. Every client on the machine reads the *same*
 local store, so a memory saved in one is instantly recalled in all the others.
 
 ## Global vs project memory
@@ -217,8 +220,8 @@ priorstates pack import --demo
 ## Status
 
 **v0.1 — working end-to-end:** memory, journal, mdlab, MCP server (10 tools),
-agent wiring (Claude / Codex / Gemini / Antigravity), the web cockpit, and the
-desktop launcher are all built and tested. Optional semantic model downloads on
+agent wiring (Claude Code / Codex / Gemini / Copilot / Cursor), the web cockpit, and
+the desktop launcher are all built and tested. Optional semantic model downloads on
 demand; the hashing fallback needs zero setup. A background embedder daemon and
 an autonomous `priorstates research` runner are next.
 

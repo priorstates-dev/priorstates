@@ -75,13 +75,13 @@ two-axis model and the GUI Area selector.
 
 Scope is resolved by walking **up from the current directory** to the nearest
 ancestor containing `.priorstates/`. So an agent reads/writes the journal of **the
-workspace it was opened in**.
+project it was opened in**.
 
 ### Recommended layouts
 
 - **Per repo (default).** `cd ~/code/my-app && priorstates init`. Open that repo in
   your agent and its journal is used automatically.
-- **One research workspace.** `mkdir ~/research && cd ~/research && priorstates
+- **One research project.** `mkdir ~/research && cd ~/research && priorstates
   init`, with experiment sub-folders sharing one journal. Group findings with
   each entry's `topic` field (e.g. `auth-refactor`) — no folder-per-topic
   needed.
@@ -235,11 +235,14 @@ table. The MCP `mdlab_run` tool lets agents run files too.
 
 ## 8. The cockpit (web) and the desktop GUI
 
-**Cockpit** — a read-only browser map of your journal + memory:
+**Cockpit** — a browser map of your journal + memory. It can capture new
+memories/journal entries, and ships a write-capable embedded **terminal** (on by
+default on loopback; pass `--no-terminal` to disable):
 
 ```bash
 priorstates cockpit                 # → http://127.0.0.1:7700
 priorstates cockpit --port 8080
+priorstates cockpit --no-terminal   # disable the embedded terminal
 ```
 
 Three tabs: **Journal** (group by topic/outcome/date), **Docs** (your project's
@@ -252,7 +255,7 @@ rendered doc/entry gets *Open in VSCode / Antigravity / …* buttons (only for
 editors whose CLI is on PATH). Clicking launches that editor on the cockpit host
 at the file — which, under VSCode/Antigravity **Remote-SSH**, opens it in your
 attached window. It's opt-in (off by default) since it runs a process on the
-host; the path is confined to the workspace. For the button to reach your
+host; the path is confined to the project. For the button to reach your
 window, launch the cockpit from your editor's integrated terminal so it inherits
 the remote `code`/`antigravity` shim.
 
@@ -266,27 +269,27 @@ Tabs: **Dashboard** (status + launch cockpit + reindex + download model),
 **Memory**, **Journal**, **Agents** (install/uninstall + status), **mdlab**
 (pick a file → Run). Needs Tk (`python3-tk` on Debian/Ubuntu).
 
-**Workspaces (left sidebar).** Each open workspace — **local** or **remote** — is
-a tab down the left side; click one to switch, `✕` to close. **+ Add workspace**
+**Projects (left sidebar).** Each open project — **local** or **remote** — is
+a tab down the left side; click one to switch, `✕` to close. **+ Add project**
 picks (or initializes) a project folder; **⇆ Connect remote…** adds a server-side
 one (see below). The set persists between runs. When you launch from the app menu
 (cwd is `$HOME`, so no project is auto-detected) just add your folder once. You
 can also target one directly: `priorstates gui --project /path`.
 
 **Launch bar.** Above the tabs is a one-click row to start work in the selected
-workspace, in two groups:
+project, in two groups:
 
 - **Launch agent** — **Claude**, **Codex**, **Gemini** (each opens in a terminal
-  **already `cd`-ed into the workspace**, so the nearest `.priorstates/` resolves and
+  **already `cd`-ed into the project**, so the nearest `.priorstates/` resolves and
   the agent starts with that project's memory + journal live) and **Antigravity**
   (opens the IDE on the folder). A `⚠` means that agent's PriorStates MCP server
   isn't wired yet — run **Agents → install** so it can see PriorStates's tools.
 - **Open in** — **VSCode** (and Cursor / Windsurf / VSCode Insiders if present),
-  opened on the workspace folder. These are editors, not MCP clients, so no `⚠`;
+  opened on the project folder. These are editors, not MCP clients, so no `⚠`;
   the PriorStates tools come from whichever agent extension you run inside them.
 
 Only tools found on your `PATH` show a button (on macOS, installed `.app`s count
-too). For a **remote** workspace, terminal agents launch over `ssh -t` on the
+too). For a **remote** project, terminal agents launch over `ssh -t` on the
 server (narrowed to CLIs actually present there), while editors open it with
 VSCode-style `--remote ssh-remote+host` from your local machine.
 
@@ -317,7 +320,7 @@ passphrase / host-key) is handled in the terminal window the GUI opens.
 
 In the **GUI**, click **Connect remote…** and enter `host:/project/path`
 (e.g. `ai2:~/research`) — or just the host to use the server's default project.
-The local **Open Cockpit** (your local workspace) and a remote **Connect** use
+The local **Open Cockpit** (your local project) and a remote **Connect** use
 separate ports, so they don't interfere.
 
 **Add a launcher** (so PriorStates shows in your application menu / on the desktop):
@@ -355,7 +358,7 @@ priorstates agents uninstall [AGENT ...]
 priorstates agents status
 priorstates agents protocol [AGENT ...] [--off]
 
-priorstates cockpit [--port P] [--host H] [--project PATH] [--allow-open] [--allow-write]
+priorstates cockpit [--port P] [--host H] [--project PATH] [--allow-open] [--allow-write] [--no-terminal]
 priorstates connect HOST [REMOTE_PROJECT] [--port P] [--remote-port R]   # run on a server, open locally
 priorstates gui [--project PATH]
 priorstates mcp                      # run the MCP server (agents launch this)

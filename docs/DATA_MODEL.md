@@ -96,7 +96,7 @@ sources; those move into plugins under the ≥64 range.)
 Body: free Markdown. For `preference`/`project` the convention is a `**Why:**`
 and `**How to apply:**` line, as in the reference system.
 
-Files live in `~/.priorstates/memory/` (global) or `<workspace>/.priorstates/memory/`
+Files live in `~/.priorstates/memory/` (global) or `<project>/.priorstates/memory/`
 (project). A search may union both (`scope='all'`).
 
 ---
@@ -106,7 +106,7 @@ Files live in `~/.priorstates/memory/` (global) or `<workspace>/.priorstates/mem
 | Field | Req | Type | Notes |
 |---|:--:|---|---|
 | `id` | ✓ (auto) | string | `YYYYMMDD_<topic>_<bodyhash6>`; stable across re-saves if body unchanged |
-| `date` | ✓ (auto) | ISO date | workspace-local day |
+| `date` | ✓ (auto) | ISO date | project-local day |
 | `topic` | ✓ | string | grouping key (label configurable; was `strategy`) |
 | `outcome` | ✓ | enum | from `journal.outcomes` config; default set below |
 | `title` | ✓ | string | one-line headline; INDEX anchor text |

@@ -30,7 +30,7 @@ creates:
 How scope is resolved: PriorStates (and the MCP server an agent launches) walks
 **up from the current directory** to the nearest ancestor containing
 `.priorstates/`. So the journal an agent reads/writes is the one for **the
-workspace the agent was opened in**.
+project the agent was opened in**.
 
 ### Recommended layouts
 
@@ -41,7 +41,7 @@ workspace the agent was opened in**.
   cd ~/code/my-app && priorstates init
   ```
 
-- **A dedicated research workspace.** One folder, many experiment sub-folders,
+- **A dedicated research project.** One folder, many experiment sub-folders,
   one shared journal — good for cross-cutting research not tied to a single
   repo. Put mdlab notes and data wherever you like underneath it.
   ```bash

@@ -1,6 +1,7 @@
 # PriorStates -- install instructions for an AI agent
 
-> **You are an AI coding agent** (Claude, Codex, Gemini, or similar) and a human
+> **You are an AI coding agent** (Claude Code, Codex, Gemini, Copilot, Cursor, or
+> similar) and a human
 > asked you to install **PriorStates**. Follow these steps in order using your
 > shell/terminal tool. Everything here is **local to this machine** -- no secrets,
 > no cloud calls, nothing destructive. If any step fails, **stop and report the
@@ -9,8 +10,9 @@
 ## What you are installing
 
 PriorStates gives AI agents a shared **local memory**, a durable **research
-journal**, and a **web cockpit**, wired into Claude / Codex / Gemini over the MCP
-protocol. It runs entirely on the user's machine, CPU-only.
+journal**, and a **web cockpit**, wired into Claude Code / Codex / Gemini / Copilot /
+Cursor (and other MCP clients) over the MCP protocol. It runs entirely on the
+user's machine, CPU-only.
 Repository: <https://github.com/priorstates-dev/priorstates>
 
 ## Preconditions -- check these first
@@ -42,7 +44,8 @@ Start-Process -Wait $exe -ArgumentList '/VERYSILENT','/SUPPRESSMSGBOXES','/NORES
 ```
 In silent mode this does **everything**: auto-installs Python 3.12 if none is
 found, installs PriorStates, runs `init`, installs MCP support, **wires the
-agents** (Claude / Codex / Gemini), and creates Start Menu + Desktop shortcuts --
+agents** (Claude Code / Codex / Gemini / Copilot / Cursor), and creates Start Menu +
+Desktop shortcuts --
 i.e. it does Steps 2 and 4 for you. **Skip to Step 3 to verify**, then restart
 the agent. (If `doctor` shows an agent `registered=False`, run Step 2's `agents
 install`. If the human already has Python 3.10+ and prefers pip, use the
@@ -149,7 +152,7 @@ py -m priorstates install-launcher --desktop
 Tell them, concisely:
 1. PriorStates is installed and `doctor` passed (paste the key lines).
 2. MCP is wired for their agents -- **they must restart their agent**
-   (Claude / Codex / Gemini) so it loads the new MCP server.
+   (Claude Code / Codex / Gemini / Copilot / Cursor) so it loads the new MCP server.
 3. **How to open the GUI:**
    - **Linux:** *"Double-click the **PriorStates** icon on your Desktop (or find
      PriorStates in your application menu) to start the GUI."* If it doesn't
@@ -180,7 +183,7 @@ Tell them, concisely:
   `python3 -m priorstates init --download-model`. Not required -- a built-in
   hashing embedder works out of the box.
 - **Optional extras** (onnx, mcp, pandas, jupyter): Method A -> install
-  `"priorstates[full] @ git+..."`; Method B -> `./install.sh --extras`.
+  `priorstates[full]` from PyPI; Method B -> `./install.sh --extras`.
 
 ## Troubleshooting
 

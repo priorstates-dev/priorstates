@@ -1,8 +1,8 @@
 # Local AI (private, on-machine answers)
 
 PriorStates synthesizes chat-with-your-memory answers (and any other AI step) **on the
-machine where your memory lives** — never by shipping your data or an API key to the
-hub. The recommended setup is a **local model via [ollama](https://ollama.com)**, so
+machine where your memory lives** — never by shipping your data or an API key off the
+box. The recommended setup is a **local model via [ollama](https://ollama.com)**, so
 your content never leaves the box and there's no per-call cost.
 
 ## Local-first by default
@@ -59,8 +59,8 @@ Write `~/.priorstates/ai.json` (the desktop app → Connections → AI does this
 { "provider": "claude_cli", "command": "claude" }
 ```
 
-`ai.json` is written `0600` (it can hold a key). Areas can carry their own `ai.json` when
-you scope a separate `PRIORSTATES_HOME` (e.g. an isolated experiment).
+`ai.json` is written `0600` (it can hold a key). An area can carry its own `ai.json`
+at `~/.priorstates/areas/<area>/ai.json`, so each kind of work can use a different model.
 
 ## Privacy
 

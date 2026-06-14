@@ -1,5 +1,12 @@
 # Projects & Areas — the two axes of "where your memory comes from"
 
+**Scope hierarchy at a glance:**
+
+- A **project** store is `<dir>/.priorstates/` — memory + journal for that folder.
+- The **global** store is `~/.priorstates/` — memory shared across all projects.
+- An active **area** redirects the global store to `~/.priorstates/areas/<area>/` —
+  a named global pack for one kind of work.
+
 PriorStates scopes memory along **two independent axes**. Getting them straight
 is the whole mental model:
 
@@ -13,10 +20,10 @@ is the whole mental model:
   `~/.priorstates/areas/<area>/` — facts true for *this kind of work*, across all
   projects. Selected with `--area NAME` (CLI) or the **Area dropdown** (GUI).
 
-> There's also a third thing that used to share the name "workspace": a
-> **`.pspack` pack**, which is a *portable export* of memory + journal you
-> publish/import to share knowledge. That's an artifact, not a place or a lens —
-> see [the cockpit/share docs](USER_GUIDE.md#8-the-cockpit-web-and-the-desktop-gui).
+> There's also a third thing: a **`.pspack` pack**, which is a *portable export*
+> of memory + journal you export/import to share knowledge. That's an artifact,
+> not a place or a lens — see
+> [the cockpit/share docs](USER_GUIDE.md#8-the-cockpit-web-and-the-desktop-gui).
 
 ## They compose
 
@@ -69,21 +76,18 @@ thought about scopes — they picked "where" once and "which hat" stays put.
 invariants instead of live trading params — no folder change, no re-clone.
 
 **C. Cross-area handoff (the promotion gate).** In `model-research`, a result is
-validated. They tag it and publish only that subset:
+validated. They tag it and export only that subset:
 
 ```bash
 priorstates --area model-research memory tag "model M v3" promoted
-# share offline (open core):
 priorstates --area model-research pack export --tag promoted --sign --out m.pspack
-# or publish to the hub (free `priorstates-hub` edition):
-priorstates --area model-research publish --tag promoted --sign
 ```
 
-The strategy teammate installs it into their area — provisional research never
+The strategy teammate imports it into their area — provisional research never
 leaks across the boundary:
 
 ```bash
-priorstates --area strategy pack install <link>
+priorstates --area strategy pack import m.pspack
 ```
 
 **D. Onboarding.** A new hire mounts the team's `core-dev` area pack once and
@@ -110,7 +114,7 @@ cheap (no per-area model re-download).
 - **Keep Areas few and stable** (the 5 above cover most desks). Many tiny areas
   hurt more than they help.
 - **Cross areas on purpose**, never by ambient access — use the promotion gate
-  (`export/publish --tag`) so only validated knowledge crosses, with provenance.
+  (`pack export --tag`) so only validated knowledge crosses, with provenance.
 - **Pinned context follows the Area** — switching Area re-renders the pinned
   block your agents see, so each hat brings its own standing rules.
 

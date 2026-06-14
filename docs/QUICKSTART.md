@@ -1,6 +1,7 @@
 # PriorStates — Quickstart
 
-PriorStates gives Claude, Codex, and Gemini a shared local **memory**, a durable
+PriorStates gives Claude Code, Codex, Gemini, Copilot, and Cursor (and other MCP
+clients) a shared local **memory**, a durable
 **research journal**, runnable-Markdown (**mdlab**), and a **cockpit** website —
 plus a **desktop GUI** to manage it all. Everything runs on your machine.
 
@@ -18,7 +19,7 @@ Then initialize and wire your agents:
 
 ```bash
 priorstates init                    # ~/.priorstates/ (global) + ./.priorstates/ (this project)
-priorstates agents install          # wire Claude / Codex / Gemini over MCP
+priorstates agents install          # wire Claude Code / Codex / Gemini / Copilot / Cursor over MCP
 ```
 
 **`python3 -m priorstates` always works** regardless of PATH; the bare
@@ -47,8 +48,10 @@ Tabs: **Dashboard** (status + launch cockpit + reindex + download model),
 priorstates cockpit          # → http://127.0.0.1:7700
 ```
 
-Read-only map of the journal (group by topic/outcome/date) and memory
-(pinned-first), with in-app Markdown rendering.
+Maps the journal (group by topic/outcome/date) and memory (pinned-first), with
+in-app Markdown rendering. The cockpit can capture memory and journal entries, and
+ships a write-capable embedded **terminal** (on by default on loopback; pass
+`--no-terminal` to disable) to run your agent CLIs right in the browser.
 
 ## 3. CLI cheatsheet
 
