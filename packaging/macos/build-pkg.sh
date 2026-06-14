@@ -13,7 +13,9 @@
 # Builds on macOS (pkgbuild/productbuild) OR on Linux with xar + mkbom
 # (bomutils) on PATH or in ~/opt/pkgtools/bin — see
 # https://github.com/hogliux/bomutils for the flat-package layout.
-# The pkg is unsigned: macOS users right-click → Open the first time.
+# Signs + notarizes when PRIORSTATES_PKG_SIGN_ID (and a notary profile) are set —
+# CI sets them, so released pkgs are signed + notarized (double-click to install).
+# Without them (e.g. a plain local build) the pkg is unsigned (right-click → Open).
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/../.." && pwd)"
