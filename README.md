@@ -212,7 +212,7 @@ priorstates pack import --demo
 - **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — first run, the two surfaces, and the CLI cheatsheet.
 - **[docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md)** — research folders + how agents log to the journal.
 - **[docs/DATA_MODEL.md](docs/DATA_MODEL.md)** — on-disk schemas + the `.psmem` layout.
-- One-click native installers (the free **Hub edition**) — macOS / Windows / Linux — at **https://priorstates.com/download**.
+- One-click native installers — macOS / Windows / Linux — at **https://priorstates.com/download**.
 
 ## Status
 

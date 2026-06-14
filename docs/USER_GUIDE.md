@@ -6,8 +6,7 @@ managed from a **desktop GUI** or the CLI. Everything runs on your machine; no
 cloud calls, no telemetry.
 
 This is the everyday-use manual. See also: [QUICKSTART.md](QUICKSTART.md) (the
-short version). One-click native installers — the free **Hub edition** (adds the
-relay, cross-device sync, and the ChatGPT connector) — are at
+short version). One-click native installers — macOS / Windows / Linux — are at
 **https://priorstates.com/download**.
 
 ## Contents
@@ -28,15 +27,14 @@ relay, cross-device sync, and the ChatGPT connector) — are at
 
 ## 1. Install
 
-One-click installers (recommended for end users) bundle the free **Hub edition**
-(memory + relay + cross-device sync + ChatGPT connector) — macOS `.pkg`,
-Windows `.exe`, Linux `.tar.gz` — at **https://priorstates.com/download**.
+One-click native installers (recommended for end users) — macOS `.pkg`,
+Windows `.exe`, Linux `.deb`/`.rpm`/`.tar.gz`, all per-user (no admin) — are at
+**https://priorstates.com/download**.
 
-The open core, via pip (any OS with Python 3.10+):
+Or via pip (any OS with Python 3.10+):
 
 ```bash
-python3 -m pip install --user --upgrade pip setuptools wheel   # important
-python3 -m pip install --user .            # or .[full] for optional extras
+pip install -U priorstates          # or: pipx install priorstates
 ```
 
 `python3 -m priorstates …` always works regardless of PATH; the `priorstates` command
