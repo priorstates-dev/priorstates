@@ -68,9 +68,12 @@ sudo dnf install ./priorstates-0.1.14-1.noarch.rpm
 <summary><b>🪟 Windows — the one-click installer (easiest of all)</b></summary>
 
 Download and run
-**[PriorStates-Windows-Setup.exe](https://github.com/priorstates-dev/priorstates/releases/latest/download/PriorStates-Windows-Setup.exe)**
+**[PriorStates-Setup.exe](https://github.com/priorstates-dev/priorstates/releases/latest/download/PriorStates-Setup.exe)**
 — it auto-installs Python if you don't have it, then installs PriorStates and adds
 Start Menu + Desktop shortcuts. Nothing else required.
+
+The Windows installer uses free code signing provided by [SignPath.io](https://signpath.io/),
+with a certificate by the [SignPath Foundation](https://signpath.org/).
 </details>
 
 <details>
