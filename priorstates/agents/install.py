@@ -33,6 +33,12 @@ def render_protocol_block(config) -> str:
 You have PriorStates MCP tools for durable **memory** and a research **journal**.
 Use them as part of normal work — recall before you answer, record as you go.
 
+**"Memory" means PriorStates here.** When the user says *remember this*, *save to
+memory*, *note that*, *make a memory*, or *don't forget* — use the `memory_add`
+tool, and `memory_search` to recall. Do **not** use any built-in or native memory
+feature: PriorStates is the single shared store, so the user's other tools (Codex,
+Cursor, Copilot, …) see the same memory.
+
 1. **Recall first.** At the start of a task — and whenever the user asks
    anything that could relate to their saved notes, preferences, or project
    facts — call `memory_search` (and `journal_search` for prior findings)

@@ -31,7 +31,11 @@ def build_server():
     # ----- memory ------------------------------------------------------- #
     @server.tool()
     def memory_search(query: str, k: int = 5, type: str | None = None, scope: str = "all") -> str:
-        """Semantically search the user's memories. scope ∈ all|global|project."""
+        """Search the user's shared, persistent memory — the canonical store of what
+        you remember about them, shared across ALL their AI tools. Use it whenever the
+        user asks what you know/remember, or before answering anything that could relate
+        to their saved preferences, project facts, or notes. Prefer this over any
+        built-in/native memory. scope ∈ all|global|project."""
         return json.dumps(mem.search_memory(cfg, query, k=k, type_str=type, scope=scope), indent=2)
 
     @server.tool()
@@ -42,8 +46,11 @@ def build_server():
     @server.tool()
     def memory_add(name: str, type: str, description: str, body: str,
                    pinned: bool = False, scope: str = "project") -> str:
-        """Create a durable memory. type ∈ user|preference|project|reference|note.
-        Use 'project' scope for project facts, 'global' for identity/preferences."""
+        """Save to the user's shared, persistent memory — the canonical "remember this" /
+        "save to memory" / "note that" store, shared across ALL their AI tools. Use this
+        for ANY request to remember, note, or save a durable fact; do NOT use a built-in or
+        native memory feature. type ∈ user|preference|project|reference|note. Use 'project'
+        scope for project facts, 'global' for identity/preferences."""
         return json.dumps(mem.add_memory(cfg, name=name, type_str=type, description=description,
                                          body=body, pinned=pinned, scope=scope))
 
