@@ -77,6 +77,11 @@ Filename: "{code:GetPyExe}"; Parameters: "{code:UninstallArgs}"; Flags: runhidde
 const
   { Python to fetch when none is present (per-user, no admin). }
   PyUrl = 'https://www.python.org/ftp/python/3.12.7/python-3.12.7-amd64.exe';
+  { Official VC++ 2015-2022 x64 redistributable. onnxruntime's native wheel links
+    against this runtime; on a clean machine `import onnxruntime` fails with
+    "DLL load failed ... The specified module could not be found", silently
+    dropping semantic recall to the hashing fallback. }
+  VCRedistUrl = 'https://aka.ms/vs/17/release/vc_redist.x64.exe';
 
 var
   PyCmd: String;
@@ -309,18 +314,48 @@ begin
   Exec(GetPyExe(''), Args, '', SW_HIDE, ewWaitUntilTerminated, rc);
 end;
 
+{ True iff the modern (VS2015-2022) x64 VC++ runtime is already present.
+  vcruntime140_1.dll shipped with VS2019 and is required by current onnxruntime
+  wheels; its presence in System32 is our "redist installed" marker. }
+function VCRuntimePresent(): Boolean;
+begin
+  Result := FileExists(ExpandConstant('{sys}\vcruntime140_1.dll'));
+end;
+
+{ Download + silently install the VC++ x64 redistributable. Best-effort: it
+  self-elevates (UAC); if the user declines or the download fails, semantic
+  recall just stays on the hashing fallback -- this never aborts the install. }
+procedure InstallVCRedist();
+var
+  rc: Integer;
+  redist: String;
+begin
+  try
+    DownloadTemporaryFile(VCRedistUrl, 'vc_redist.x64.exe', '', nil);
+  except
+    exit;  { no network / download failed -- non-fatal }
+  end;
+  redist := ExpandConstant('{tmp}\vc_redist.x64.exe');
+  if FileExists(redist) then
+    Exec(redist, '/install /quiet /norestart', '', SW_SHOW, ewWaitUntilTerminated, rc);
+end;
+
 { Drive the slow post-extraction work behind a determinate progress page. }
 procedure RunInstallSteps();
 var
   Total, Step: Integer;
-  DoAgents, DoSemantic: Boolean;
+  DoAgents, DoSemantic, NeedVC: Boolean;
 begin
   DoAgents := WizardIsTaskSelected('wireagents');
   DoSemantic := WizardIsTaskSelected('semantic');
+  { Semantic recall (onnxruntime) needs the MSVC runtime; install it first so the
+    library loads on a clean machine instead of silently falling back to hashing. }
+  NeedVC := DoSemantic and (not VCRuntimePresent());
 
   Total := 3;
   if DoAgents then Total := Total + 2;
   if DoSemantic then Total := Total + 2;
+  if NeedVC then Total := Total + 1;
 
   ProgressPage.Show;
   try
@@ -334,6 +369,13 @@ begin
     end;
     if DoSemantic then
     begin
+      if NeedVC then
+      begin
+        Inc(Step);
+        ProgressPage.SetText('Installing the Microsoft Visual C++ runtime (required for semantic recall)...', '');
+        ProgressPage.SetProgress(Step, Total);
+        InstallVCRedist();
+      end;
       Inc(Step); RunStep(ProgressPage, Step, Total, 'Installing semantic recall libraries...', '-m pip install --user onnxruntime tokenizers');
       Inc(Step); RunStep(ProgressPage, Step, Total, 'Downloading the semantic recall model (~127 MB, runs locally)...', '-m priorstates init --download-model --no-wire');
     end;

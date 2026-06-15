@@ -233,12 +233,31 @@ def _download_model(force: bool = False, multilingual: bool = False):
     # are both 384-dim; the reindex below rebuilds vectors in the new space).
     _set_active_model(name)
 
-    # Semantic recall also needs the inference libraries.
+    # Semantic recall also needs the inference libraries -- and on Windows, the
+    # MSVC runtime that onnxruntime's native wheel links against. Without it
+    # `import onnxruntime` dies with "DLL load failed ... The specified module
+    # could not be found" and the embedder silently drops back to hashing.
+    _ensure_windows_vc_runtime()
     missing = [m for m in ("onnxruntime", "tokenizers") if not _importable(m)]
     if missing:
         print(f"NOTE: install the inference libs to actually use it: "
               f"pip install --user {' '.join(missing)}")
         print("      then run: priorstates memory reindex")
+        return
+    # find_spec() finding onnxruntime is NOT enough on Windows: the package can be
+    # present yet fail to load its native extension (missing VC++ runtime). Confirm
+    # it actually imports before claiming semantic recall is enabled.
+    try:
+        import onnxruntime  # noqa: F401
+        import tokenizers  # noqa: F401
+    except Exception as e:  # noqa: BLE001
+        print(f"NOTE: the inference libraries are installed but failed to load ({e}).")
+        if sys.platform == "win32":
+            print("      Install the Microsoft Visual C++ x64 runtime, then restart "
+                  "PriorStates:")
+            print("      https://aka.ms/vs/17/release/vc_redist.x64.exe")
+        else:
+            print("      Semantic recall stays on the hashing fallback until this is fixed.")
         return
     print("semantic recall enabled (embedder: onnx).")
     # Existing .psmem indexes were built with the hashing embedder — rebuild them
@@ -257,6 +276,63 @@ def _importable(mod: str) -> bool:
         return importlib.util.find_spec(mod) is not None
     except Exception:
         return False
+
+
+# The official VC++ 2015-2022 x64 redistributable. Overridable for mirrors/offline.
+VCREDIST_URL = "https://aka.ms/vs/17/release/vc_redist.x64.exe"
+
+
+def _vc_runtime_present() -> bool:
+    """True iff the modern (VS2015-2022) x64 MSVC runtime is loadable. The
+    onnxruntime native module links against it; ``vcruntime140_1.dll`` shipped
+    with VS2019 and is required by current onnxruntime wheels."""
+    if sys.platform != "win32":
+        return True
+    import ctypes
+    try:
+        ctypes.WinDLL("vcruntime140_1.dll")  # found on the DLL search path → present
+        return True
+    except OSError:
+        return False
+
+
+def _ensure_windows_vc_runtime() -> None:
+    """On Windows, make sure the MSVC runtime onnxruntime needs is installed.
+
+    Best-effort and idempotent: a no-op off Windows or when the runtime is
+    already present. Otherwise downloads the official x64 redistributable and
+    runs it silently (it self-elevates via UAC). If the download or install
+    fails — or the user declines elevation — semantic recall just stays on the
+    hashing fallback; we never raise."""
+    if _vc_runtime_present():
+        return
+    import shutil
+    import tempfile
+    import urllib.request
+    url = os.environ.get("PRIORSTATES_VCREDIST_URL", VCREDIST_URL)
+    dest = Path(tempfile.gettempdir()) / "ps_vc_redist.x64.exe"
+    print("installing the Microsoft Visual C++ x64 runtime (required by "
+          "onnxruntime; you may see a UAC prompt)...")
+    try:
+        req = urllib.request.Request(url, headers={"User-Agent": "priorstates/0.1"})
+        with urllib.request.urlopen(req, timeout=180) as r, open(dest, "wb") as f:
+            shutil.copyfileobj(r, f)
+    except Exception as e:  # noqa: BLE001
+        print(f"  could not download the VC++ runtime ({e}); install it manually "
+              f"from {VCREDIST_URL} then restart PriorStates.")
+        return
+    try:
+        subprocess.run([str(dest), "/install", "/quiet", "/norestart"],
+                       check=False, timeout=600, creationflags=_CNW)
+    except Exception as e:  # noqa: BLE001
+        print(f"  could not run the VC++ runtime installer ({e}); install it "
+              f"manually from {VCREDIST_URL} then restart PriorStates.")
+        return
+    if _vc_runtime_present():
+        print("  Microsoft Visual C++ x64 runtime installed.")
+    else:
+        print(f"  the VC++ runtime still isn't active; install it manually from "
+              f"{VCREDIST_URL} and restart PriorStates.")
 
 
 # --------------------------------------------------------------------------- #
@@ -923,7 +999,21 @@ def cmd_doctor(args):
     emb = get_embedder(cfg)
     print(f"embedder:       {getattr(emb, 'backend', '?')} (dim={emb.dim})")
     if getattr(emb, "backend", "") == "hashing":
-        print("                ↳ run `priorstates init --download-model` for semantic recall")
+        # Distinguish "no model yet" from "model + libs present but onnxruntime
+        # can't load its native module" (the classic Windows missing-VC++-runtime
+        # case) — the second needs a very different fix.
+        if _importable("onnxruntime"):
+            try:
+                import onnxruntime  # noqa: F401
+                print("                ↳ onnxruntime loads but no model is active — "
+                      "run `priorstates init --download-model`")
+            except Exception as e:  # noqa: BLE001
+                print(f"                ↳ onnxruntime is installed but fails to load: {e}")
+                if sys.platform == "win32":
+                    print("                  install the Microsoft Visual C++ x64 runtime, "
+                          "then restart: https://aka.ms/vs/17/release/vc_redist.x64.exe")
+        else:
+            print("                ↳ run `priorstates init --download-model` for semantic recall")
     from .core.native import native_sources
     nsrc = native_sources(cfg)
     if nsrc:
