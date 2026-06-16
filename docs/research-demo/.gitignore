@@ -1,0 +1,11 @@
+# The demo creates its own project store when you run it. It's a scratch
+# sandbox — don't commit what the walkthrough generates.
+.priorstates/
+.mdlab_assets/
+
+# Agent-wiring files that `priorstates init` / `agents install` drops into a
+# project. Generated per-machine; users get their own when they run the demo.
+.github/
+AGENTS.md
+CLAUDE.md
+GEMINI.md

@@ -214,6 +214,7 @@ priorstates pack import --demo
 - **[docs/PROJECTS_AND_AREAS.md](docs/PROJECTS_AND_AREAS.md)** — Projects vs Areas: the two scoping axes + the GUI Area selector.
 - **[docs/QUICKSTART.md](docs/QUICKSTART.md)** — first run, the two surfaces, and the CLI cheatsheet.
 - **[docs/RESEARCH_WORKFLOW.md](docs/RESEARCH_WORKFLOW.md)** — research folders + how agents log to the journal.
+- **[docs/research-demo/](docs/research-demo/model-research-loop.mdlab.md)** — a runnable end-to-end demo: watch the recall→hypothesize→measure→record→recall loop close in one file (`priorstates mdlab run`).
 - **[docs/DATA_MODEL.md](docs/DATA_MODEL.md)** — on-disk schemas + the `.psmem` layout.
 - One-click native installers — macOS / Windows / Linux — at **https://priorstates.com/download**.
 
