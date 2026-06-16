@@ -15,6 +15,10 @@ $ cd docs/research-demo            # run from this directory
 $ priorstates mdlab run model-research-loop.mdlab.md
 ```
 
+> For the cockpit's ▶ Run button, start it with **`priorstates cockpit --allow-write`** —
+> Run executes code on the host, so it's off unless you opt in. The headless
+> `mdlab run` above always works.
+
 Results are written back into the file beneath each block, inside
 `<!-- priorstates:result … -->` markers. Nothing here touches your real project —
 the setup block gives the demo its own sandbox store under
