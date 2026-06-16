@@ -360,7 +360,11 @@ begin
   ProgressPage.Show;
   try
     Step := 1; RunStep(ProgressPage, Step, Total, 'Installing PriorStates into your Python...', PipInstallArgs(''));
-    Step := 2; RunStep(ProgressPage, Step, Total, 'Initializing PriorStates...', '-m priorstates init --no-wire');
+    { --global-only: set up the global store ONLY. Without it, `init` creates a
+      .priorstates PROJECT in the install step's working directory (wherever that
+      happens to be), which the desktop GUI then auto-opens as a "project" instead
+      of the default global root. }
+    Step := 2; RunStep(ProgressPage, Step, Total, 'Initializing PriorStates...', '-m priorstates init --global-only --no-wire');
     Step := 3; RunStep(ProgressPage, Step, Total, 'Installing cockpit terminal support...', '-m pip install --user pywinpty');
     if DoAgents then
     begin
@@ -377,7 +381,7 @@ begin
         InstallVCRedist();
       end;
       Inc(Step); RunStep(ProgressPage, Step, Total, 'Installing semantic recall libraries...', '-m pip install --user onnxruntime tokenizers');
-      Inc(Step); RunStep(ProgressPage, Step, Total, 'Downloading the semantic recall model (~127 MB, runs locally)...', '-m priorstates init --download-model --no-wire');
+      Inc(Step); RunStep(ProgressPage, Step, Total, 'Downloading the semantic recall model (~127 MB, runs locally)...', '-m priorstates init --download-model --global-only --no-wire');
     end;
     ProgressPage.SetProgress(Total, Total);
   finally

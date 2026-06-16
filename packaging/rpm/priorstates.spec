@@ -72,10 +72,10 @@ if [ -n "$U" ] && [ "$U" != "root" ] && command -v runuser >/dev/null 2>&1; then
   runuser -l "$U" -c "PIP_BREAK_SYSTEM_PACKAGES=1 $PSPY -m pip install --user -q mcp onnxruntime tokenizers" >/dev/null 2>&1 \
     || echo "    (skipped, no network? finish later: $PSPY -m pip install --user mcp onnxruntime tokenizers)"
   echo "  - wiring your AI agents (Claude Code, Copilot, Cursor, Codex, Gemini) ..."
-  runuser -l "$U" -c 'priorstates init' >/dev/null 2>&1 || :
+  runuser -l "$U" -c 'priorstates init --global-only' >/dev/null 2>&1 || :
   echo "  - downloading the semantic-recall model (~127 MB) ..."
-  runuser -l "$U" -c 'priorstates init --download-model' >/dev/null 2>&1 \
-    || echo "    (skipped, no network? finish later: priorstates init --download-model)"
+  runuser -l "$U" -c 'priorstates init --download-model --global-only' >/dev/null 2>&1 \
+    || echo "    (skipped, no network? finish later: priorstates init --download-model --global-only)"
   echo "PriorStates is ready. Launch it from your application menu or run: priorstates-gui"
 else
 cat <<MSG

@@ -118,12 +118,15 @@ case ":$PATH:" in *":$BIN:"*) ;; *)
 esac
 
 # ---- init + wire detected agents (install-and-forget) ----------------------
+# --global-only: set up the GLOBAL store only. Without it, `init` creates a
+# .priorstates PROJECT in the installer's working dir, which the GUI then auto-
+# opens as a "project" instead of the default global root.
 if [ "$WIRE" = 1 ]; then
   echo "==> initializing + wiring detected AI agents"
-  "$TARGET_BIN/priorstates" init || true
+  "$TARGET_BIN/priorstates" init --global-only || true
 else
   echo "==> initializing (agent wiring skipped: --no-wire)"
-  "$TARGET_BIN/priorstates" init --no-wire || true
+  "$TARGET_BIN/priorstates" init --global-only --no-wire || true
 fi
 
 # ---- semantic-recall model (default; skip with --lite) ----------------------
@@ -131,7 +134,7 @@ if [ "$MODEL" = 1 ]; then
   echo "==> downloading the semantic-recall model (~127 MB; skip with --lite)"
   # Non-fatal: hashing recall keeps working; re-run `priorstates init
   # --download-model` any time.
-  "$TARGET_BIN/priorstates" init --download-model --no-wire || true
+  "$TARGET_BIN/priorstates" init --download-model --global-only --no-wire || true
 fi
 
 cat <<MSG
