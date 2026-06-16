@@ -1625,22 +1625,69 @@ class PriorStatesGUI:
         except Exception:
             return None
 
-    def _latest_release_version(self):
-        """(version_str, html_url) of the newest published GitHub release, or
-        (None, None) on any network/parse error (offline, rate-limited, …)."""
+    # github.com web page (NOT the API) — 302-redirects to /releases/tag/vX.Y.Z.
+    # Used as a fallback because it isn't subject to the API's 60/hr unauthenticated
+    # rate limit and is reachable when only api.github.com is firewalled.
+    RELEASES_PAGE = os.environ.get(
+        "PRIORSTATES_RELEASES_PAGE",
+        "https://github.com/priorstates-dev/priorstates/releases/latest")
+
+    def _ssl_ctx(self):
+        """A TLS context that verifies certs. Prefer certifi's CA bundle — Python's
+        urllib doesn't reliably find the system trust store on Windows, so HTTPS
+        otherwise fails with 'certificate verify failed: unable to get local issuer
+        certificate' even when online (pip works because it bundles certifi)."""
+        import ssl
+        try:
+            import certifi
+            return ssl.create_default_context(cafile=certifi.where())
+        except Exception:
+            try:
+                return ssl.create_default_context()
+            except Exception:
+                return None
+
+    def _http_json(self, url, timeout=10):
+        """GET JSON over verified TLS. Returns (data, error_str)."""
         import json
         import urllib.request
         try:
             req = urllib.request.Request(
-                self.RELEASE_API,
-                headers={"User-Agent": "priorstates-gui",
-                         "Accept": "application/vnd.github+json"})
-            with urllib.request.urlopen(req, timeout=10) as r:
-                d = json.load(r)
-            tag = (d.get("tag_name") or "").lstrip("vV")
-            return (tag or None), d.get("html_url")
+                url, headers={"User-Agent": "priorstates-gui",
+                              "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=timeout, context=self._ssl_ctx()) as r:
+                return json.load(r), None
+        except Exception as e:  # noqa: BLE001
+            return None, str(e)
+
+    def _latest_via_web_redirect(self, timeout=10):
+        """Latest version read from the github.com releases/latest redirect target
+        (…/releases/tag/vX.Y.Z). (version, html_url) or (None, None)."""
+        import re
+        import urllib.request
+        try:
+            req = urllib.request.Request(self.RELEASES_PAGE, method="HEAD",
+                                         headers={"User-Agent": "priorstates-gui"})
+            with urllib.request.urlopen(req, timeout=timeout, context=self._ssl_ctx()) as r:
+                final = r.geturl()
         except Exception:
             return None, None
+        m = re.search(r"/releases/tag/v?([0-9][0-9.]*)", final or "")
+        return (m.group(1), final) if m else (None, None)
+
+    def _latest_release_version(self):
+        """(version_str, html_url, error) of the newest published release. version
+        is None on a total failure; error carries the API reason for the dialog.
+        Tries the GitHub API first, then falls back to the github.com web redirect
+        (which dodges the API rate limit / api-host firewalling)."""
+        d, err = self._http_json(self.RELEASE_API)
+        if d is not None:
+            tag = (d.get("tag_name") or "").lstrip("vV")
+            return (tag or None), d.get("html_url"), None
+        v, url = self._latest_via_web_redirect()
+        if v:
+            return v, url, None
+        return None, None, err
 
     def _build_menubar(self):
         """A native menu bar — Help → About / Check for updates. (No menu existed
@@ -1733,19 +1780,22 @@ class PriorStatesGUI:
         cur = self._installed_version()
 
         def check():
-            latest, url = self._latest_release_version()
-            return cur, latest, url
+            latest, url, err = self._latest_release_version()
+            return cur, latest, url, err
 
         def decide(res):
-            cur, latest, url = res
-            # 1) Couldn't reach the update server — offer a manual reinstall.
+            cur, latest, url, err = res
+            # 1) Couldn't reach the update server — show why, offer a manual reinstall.
             if not latest:
-                self.set_status("couldn't check for updates (offline?)")
+                self.set_status("couldn't check for updates: " + (err or "offline?"))
+                detail = ("\n\nDetails: " + err) if err else ""
                 if messagebox.askyesno(
                         "Check for updates",
-                        "Couldn't reach the update server to check the latest version "
-                        "(are you offline?).\n\n"
-                        "Reinstall the latest PriorStates from GitHub anyway?"):
+                        "Couldn't reach the update server to check the latest version."
+                        + detail +
+                        "\n\nThis is usually a network/firewall/proxy issue (the check "
+                        "contacts api.github.com). Reinstall the latest PriorStates from "
+                        "GitHub anyway?"):
                     self._do_update_install()
                 return
             # 2) Already current — inform the user, do nothing else.

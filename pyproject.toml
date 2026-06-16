@@ -16,7 +16,9 @@ keywords = ["ai", "memory", "journal", "mcp", "claude", "codex", "gemini", "mdla
 
 # Hard deps kept minimal: numpy is needed for the embedding store; everything
 # else degrades gracefully (see priorstates/core/embedder.py and journal.py).
-dependencies = ["numpy>=1.21"]
+# certifi: a CA bundle so HTTPS (update check, model download) verifies on
+# Windows, where stdlib urllib doesn't reliably use the system trust store.
+dependencies = ["numpy>=1.21", "certifi>=2023.7"]
 
 [project.optional-dependencies]
 # Real semantic embeddings (otherwise a built-in hashing fallback is used).
