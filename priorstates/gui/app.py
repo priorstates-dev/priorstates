@@ -205,7 +205,12 @@ class PriorStatesGUI:
         self._tabs = {}
         self._tab_dashboard(self._nb)
         self._tab_agents(self._nb)
-        self._tab_connections(self._nb)
+        self._tab_ai(self._nb)
+        # Connections (sign-in, sync, sharing, relay) is provided by an edition
+        # plugin — in the community build it's empty, so only show it when an
+        # edition actually lights it up (Hub / Enterprise / any future edition).
+        if self._has_connections():
+            self._tab_connections(self._nb)
         self._build_remote_panel(mainf)
 
         bar = ttk.Frame(root, style="Header.TFrame")
@@ -1780,6 +1785,39 @@ class PriorStatesGUI:
         self.run_bg(go, done)
 
     # ----- connection services (relay, …) managed via the plugin seam --- #
+    def _has_connections(self):
+        """True when an installed edition provides connection capability (account
+        sign-in or background services). False for the standalone community build,
+        where the Connections tab would otherwise be an empty upsell."""
+        try:
+            from ..core import plugins as _pl
+            reg = _pl.registry(self.cfg)
+            if getattr(reg, "edition", "community") not in ("", "community"):
+                return True
+            return bool(reg.services()) or bool(reg.account_status())
+        except Exception:
+            return False
+
+    def _tab_ai(self, nb):
+        """Local 'chat AI' config — the model that answers questions about your
+        memory via the core `memory_answer` tool. Always present (it's a core
+        feature, independent of the hub-only Connections tab)."""
+        tk, ttk = self.tk, self.ttk
+        f = ttk.Frame(nb)
+        nb.add(f, text="AI")
+        self._tabs["ai"] = f
+        head = ttk.Frame(f); head.pack(fill="x", padx=16, pady=(12, 4))
+        tk.Label(head, text="Chat AI", bg=BG, fg=FG,
+                 font=(self._fam(), 13, "bold")).pack(anchor="w")
+        tk.Label(head, text=("The AI used to answer questions about your memory (the "
+                             "'memory_answer' tool). Answers are generated on THIS machine — "
+                             "your API key never leaves it. Leave it off to keep memory "
+                             "search-only."),
+                 bg=BG, fg=DIM, wraplength=820, justify="left",
+                 font=(self._fam(), 9)).pack(anchor="w", pady=(2, 0))
+        self._ai_box = ttk.Frame(f); self._ai_box.pack(fill="x", padx=16, pady=(10, 2))
+        self._render_ai()
+
     def _tab_connections(self, nb):
         tk, ttk = self.tk, self.ttk
         f = ttk.Frame(nb)
@@ -1795,10 +1833,8 @@ class PriorStatesGUI:
         self._svc_proc = {}        # name -> Popen
         self._svc_rows = {}        # name -> {status, btn, spec, auto, opts, note}
         self._acct_box = ttk.Frame(f); self._acct_box.pack(fill="x", padx=16, pady=(10, 2))
-        self._ai_box = ttk.Frame(f); self._ai_box.pack(fill="x", padx=16, pady=(8, 2))
         self._svc_box = ttk.Frame(f); self._svc_box.pack(fill="both", expand=True, padx=16, pady=8)
         self._render_account()
-        self._render_ai()
         self._render_services()
         # auto-start flagged services, then begin the status poll loop
         auto = self._svc_autostart_set()
@@ -2077,11 +2113,7 @@ class PriorStatesGUI:
             cur = _ai.load_ai(self.cfg)
         except Exception:
             cur = {}
-        tk.Label(box, text="AI for chat answers", bg=BG, fg=FG,
-                 font=(self._fam(), 10, "bold")).pack(anchor="w")
-        tk.Label(box, text=("Used by 'Chat with your memory'. The answer is generated on THIS "
-                            "machine — your API key never leaves it."),
-                 bg=BG, fg=DIM, wraplength=780, justify="left", font=(self._fam(), 9)).pack(anchor="w", pady=(1, 4))
+        # (The tab header already explains what this is — go straight to controls.)
         prov = tk.StringVar(value=(cur.get("provider") or "(off)"))
         line = ttk.Frame(box); line.pack(anchor="w", fill="x")
         tk.Label(line, text="Provider:", bg=BG, fg=DIM, font=(self._fam(), 9)).pack(side="left")
