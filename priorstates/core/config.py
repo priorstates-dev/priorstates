@@ -17,6 +17,7 @@ from __future__ import annotations
 
 import os
 import re
+import sys
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
@@ -254,6 +255,34 @@ def ensure_editors_on_path() -> None:
         if ds not in parts and d.is_dir():
             os.environ["PATH"] = ds + os.pathsep + os.environ.get("PATH", "")
             parts.insert(0, ds)
+
+
+# macOS .app bundles for the editor CLIs (which usually aren't on PATH there).
+_MAC_EDITOR_APPS = {
+    "code": ("Visual Studio Code", "code"),
+    "code-insiders": ("Visual Studio Code - Insiders", "code-insiders"),
+    "cursor": ("Cursor", "cursor"),
+    "windsurf": ("Windsurf", "windsurf"),
+    "antigravity": ("Antigravity", "antigravity"),
+}
+
+
+def resolve_editor(binname: str) -> str | None:
+    """Launchable path for an editor CLI, or None. PATH first; on macOS fall back
+    to the .app bundle (``code`` etc. aren't on PATH unless the user ran "Install
+    'code' command in PATH"), so the cockpit's open-in-editor button still works."""
+    import shutil
+    exe = shutil.which(binname)
+    if exe:
+        return exe
+    if sys.platform == "darwin":
+        app, cli = _MAC_EDITOR_APPS.get(binname, (None, None))
+        if app:
+            for base in ("/Applications", str(Path.home() / "Applications")):
+                cand = Path(base) / f"{app}.app" / "Contents" / "Resources" / "app" / "bin" / cli
+                if cand.exists():
+                    return str(cand)
+    return None
 
 
 def find_project_root(start: Path | str | None = None) -> Path | None:

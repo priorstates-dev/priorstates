@@ -802,9 +802,11 @@ def _start_local_opener(host: str) -> int:
             if u.path == "/open":
                 app = (q.get("app") or [""])[0]
                 path = (q.get("path") or [""])[0]
+                from .core.config import resolve_editor
                 b = BINS.get(app)
-                if b and path and shutil.which(b):
-                    argv = [b, "--reuse-window", "--remote", f"ssh-remote+{host}", path]
+                exe = resolve_editor(b) if b else None
+                if exe and path:
+                    argv = [exe, "--reuse-window", "--remote", f"ssh-remote+{host}", path]
                     kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL}
                     if os.name == "nt":
                         # code/cursor/antigravity are .cmd shims CreateProcess can't
@@ -909,9 +911,9 @@ def cmd_connect(args):
     # Open-in-editor runs on THIS client via the opener, so tell the cockpit which
     # editors the client actually has — its buttons should reflect those, not the
     # remote host's (e.g. a stray `antigravity` binary on the server).
-    import shutil as _sh
+    from .core.config import resolve_editor
     client_eds = ",".join(b for b in ("code", "code-insiders", "cursor", "windsurf", "antigravity")
-                          if _sh.which(b))
+                          if resolve_editor(b))
     # A ~-based remote project must be resolved to an ABSOLUTE path on the remote:
     # VSCode/antigravity --remote don't tilde-expand, and the nested shell quoting
     # around a literal ~ is fragile. Resolve it via the (already-authenticated) SSH

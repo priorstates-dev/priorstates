@@ -69,6 +69,35 @@ ROOTS = [os.path.abspath(p) for p in (HOME, PROJECT_ROOT) if p]
 EDITOR_CANDIDATES = [("code", "VSCode"), ("antigravity", "Antigravity"),
                      ("cursor", "Cursor"), ("windsurf", "Windsurf"),
                      ("code-insiders", "VSCode Insiders")]
+# On macOS the editor CLIs (code/cursor/…) usually aren't on PATH — they live
+# inside the .app bundle and the user has to run "Install 'code' in PATH" first.
+# Resolve them from the bundle so the cockpit still shows the button (and can
+# launch it) without that manual step.
+_MAC_EDITOR_APPS = {
+    "code": ("Visual Studio Code", "code"),
+    "code-insiders": ("Visual Studio Code - Insiders", "code-insiders"),
+    "cursor": ("Cursor", "cursor"),
+    "windsurf": ("Windsurf", "windsurf"),
+    "antigravity": ("Antigravity", "antigravity"),
+}
+
+
+def _resolve_editor(binname):
+    """Launchable path for an editor CLI, or None — PATH first, then the macOS
+    .app bundle location."""
+    exe = shutil.which(binname)
+    if exe:
+        return exe
+    if sys.platform == "darwin":
+        app, cli = _MAC_EDITOR_APPS.get(binname, (None, None))
+        if app:
+            for base in ("/Applications", os.path.expanduser("~/Applications")):
+                cand = os.path.join(base, app + ".app", "Contents", "Resources", "app", "bin", cli)
+                if os.path.exists(cand):
+                    return cand
+    return None
+
+
 # For a REMOTE cockpit (served via `priorstates connect`), open-in-editor runs on
 # the CLIENT via `code --remote …`, so the buttons must reflect the CLIENT's
 # editors (passed in as PS_OPENER_EDITORS), NOT this remote host's. Otherwise a
@@ -79,7 +108,11 @@ if OPENER_PORT and _OPENER_EDITORS is not None:
     _avail = set(filter(None, _OPENER_EDITORS.split(",")))
     EDITORS = [{"bin": b, "label": lbl} for b, lbl in EDITOR_CANDIDATES if b in _avail]
 else:
-    EDITORS = [{"bin": b, "label": lbl} for b, lbl in EDITOR_CANDIDATES if shutil.which(b)]
+    EDITORS = []
+    for b, lbl in EDITOR_CANDIDATES:
+        _exe = _resolve_editor(b)
+        if _exe:
+            EDITORS.append({"bin": b, "label": lbl, "exec": _exe})
 
 
 def under_root(p: str) -> bool:
@@ -583,7 +616,7 @@ class Handler(BaseHTTPRequestHandler):
         t = os.path.abspath(target) if target else PROJECT_ROOT
         if not t or not under_root(t):
             return self._err(403, "path outside workspace")
-        argv = [ed["bin"], t]
+        argv = [ed.get("exec") or ed["bin"], t]
         kw = {"stdout": subprocess.DEVNULL, "stderr": subprocess.DEVNULL,
               "stdin": subprocess.DEVNULL}
         if os.name == "nt":
