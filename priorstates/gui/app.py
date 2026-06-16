@@ -175,9 +175,14 @@ class PriorStatesGUI:
         self.area_combo.pack(side="left")
         self.area_combo.bind("<<ComboboxSelected>>", self._on_area_change)
         self.area_combo.bind("<Return>", self._on_area_change)
+        # Also commit a typed-but-not-Entered name when the field loses focus
+        # (e.g. when you click the dropdown arrow) — otherwise an in-progress
+        # name is silently discarded and looks like it "disappeared".
+        self.area_combo.bind("<FocusOut>", self._on_area_change)
         self._tip(self.area_combo, "Which named memory pack is mounted (core-dev, "
                   "strategy, ops, audit…). Changes what your agents and the cockpit "
-                  "recall. Type a new name to create one.")
+                  "recall. Type a new name and press Enter (or click away) to switch "
+                  "to it; the name is lowercased (e.g. 'My Notes' → 'my-notes').")
 
         self.status = tk.StringVar(value="ready")
 
