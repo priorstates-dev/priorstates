@@ -82,7 +82,7 @@ Then continue to **Step 2**.
 # Native installer (recommended): grab the .pkg from https://priorstates.com/download
 # and double-click — "install for me only", no admin password.
 # Or via pip, any OS with Python 3.10+ (the PEP 668 env var is ignored by older pip):
-PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user -U priorstates
+PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --user -U "priorstates[mcp]"
 ```
 Re-run with `-U` to update. Then continue to **Step 2**.
 

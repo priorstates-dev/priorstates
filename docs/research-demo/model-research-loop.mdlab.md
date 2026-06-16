@@ -61,16 +61,17 @@ brackets that make the work accumulate.
 
 ```bash
 priorstates init . >/dev/null 2>&1 || true
-echo "project store: $(pwd)/.priorstates"
+echo "project store: ./.priorstates (under this folder)"
 ls .priorstates
 ```
 
-<!-- priorstates:result src=0245c5db658b kind=output -->
+<!-- priorstates:result src=fa5269158155 kind=output -->
 ```output
-project store: /home/zqin/scdev/open_source/priorstates/docs/research-demo/.priorstates
+project store: ./.priorstates (under this folder)
 config.toml
 journal
 memory
+memory.psmem
 ```
 <!-- priorstates:result-end -->
 

@@ -87,7 +87,7 @@ package — install with no installer at all:
 
 ```powershell
 py -m pip install --user pipx
-py -m pipx install priorstates
+py -m pipx install "priorstates[mcp]"
 priorstates init
 ```
 
@@ -98,12 +98,12 @@ priorstates init
 <summary><b>📦 Any OS with Python 3.10+ — pip / pipx</b></summary>
 
 ```bash
-pip install -U priorstates        # or: pipx install priorstates
+pip install -U "priorstates[mcp]" # or: pipx install "priorstates[mcp]"  (the [mcp] extra is what agents talk to)
 priorstates init                  # wire Claude Code / Codex / Gemini / Copilot / Cursor over MCP
 priorstates cockpit               # web cockpit → http://127.0.0.1:7700
 ```
 
-On Debian/Ubuntu (PEP 668) use `pipx install priorstates` (or add
+On Debian/Ubuntu (PEP 668) use `pipx install "priorstates[mcp]"` (or add
 `--user --break-system-packages` to pip).
 </details>
 

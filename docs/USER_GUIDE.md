@@ -29,7 +29,7 @@ short version). One-click native installers — macOS / Windows / Linux — are 
 
 Get PriorStates from the **[install guide](https://priorstates.com/install)** —
 native installers for macOS / Windows / Linux (all per-user, no admin), or
-`pip install -U priorstates` / `pipx install priorstates` (any OS with Python 3.10+).
+`pip install -U "priorstates[mcp]"` / `pipx install "priorstates[mcp]"` (any OS with Python 3.10+).
 
 `python3 -m priorstates …` always works regardless of PATH; the `priorstates` command
 also works once the user scripts dir (e.g. `~/.local/bin`) is on PATH.

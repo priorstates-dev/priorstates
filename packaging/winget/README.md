@@ -12,7 +12,7 @@ Once published, users install with:
 winget install PriorStates.PriorStates
 ```
 
-(For the most locked-down setups, the no-installer path is `pipx install priorstates`.)
+(For the most locked-down setups, the no-installer path is `pipx install "priorstates[mcp]"`.)
 
 ## One-time: first submission (manual)
 

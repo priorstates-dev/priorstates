@@ -5,7 +5,7 @@
 # never wipes these binaries. SHA256SUMS is regenerated on the box over the
 # FINAL hosted set (OSS + Hub artifacts share the dir; names are distinct).
 #
-#   SSH_OPTS='-i ~/.ssh/ydev-ec2.pem' packaging/publish-downloads.sh ubuntu@3.208.145.97
+#   SSH_OPTS='-i ~/.ssh/your-deploy-key.pem' packaging/publish-downloads.sh user@your-host
 set -euo pipefail
 HERE="$(cd "$(dirname "$0")" && pwd)"
 REPO="$(cd "$HERE/.." && pwd)"

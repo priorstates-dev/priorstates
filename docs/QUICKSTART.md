@@ -12,7 +12,7 @@ other option are in the **[install guide](https://priorstates.com/install)**. Th
 shortest path on any OS with Python 3.10+:
 
 ```bash
-pip install -U priorstates          # or: pipx install priorstates
+pip install -U "priorstates[mcp]"   # or: pipx install "priorstates[mcp]"  — the [mcp] extra is what agents talk to
 ```
 
 Then initialize and wire your agents:

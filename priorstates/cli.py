@@ -980,7 +980,18 @@ def cmd_gui(args):
 
 def cmd_mcp(args):
     from .mcp.server import main as mcp_main
-    mcp_main()
+    try:
+        mcp_main()
+    except ModuleNotFoundError as e:
+        # The `mcp` package is an optional extra; a bare `pip install priorstates`
+        # omits it. Fail with a fix instead of a raw traceback.
+        if (getattr(e, "name", "") or "").split(".")[0] == "mcp":
+            raise SystemExit(
+                "MCP support is not installed — the `mcp` package is missing.\n"
+                "Install it with:  pip install 'priorstates[mcp]'\n"
+                "(the platform installers and the curl|sh one-liner bundle it already.)"
+            )
+        raise
 
 
 def cmd_ask(args):
