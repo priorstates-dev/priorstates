@@ -213,7 +213,7 @@ class PriorStatesGUI:
         # App-level actions: always visible, not tied to a project or tab.
         ub = ttk.Button(bar, text="Update", style="Foot.TButton", command=self.update_software)
         ub.pack(side="right", padx=(0, 12), pady=3)
-        self._tip(ub, "Reinstall the latest PriorStates from GitHub (restart the app afterward).")
+        self._tip(ub, "Check for a newer PriorStates release and install it if one is available.")
         db = ttk.Button(bar, text="Docs", style="Foot.TButton", command=self.open_docs)
         db.pack(side="right", padx=4, pady=3)
         self._tip(db, "Open the PriorStates documentation in your browser.")
@@ -1568,6 +1568,44 @@ class PriorStatesGUI:
 
     # Reinstall the latest PriorStates from GitHub (the pip-from-git path).
     REPO_URL = "git+https://github.com/priorstates-dev/priorstates.git"
+    # Where "is there a newer version?" is answered from — the newest *published*
+    # GitHub Release (that's what the website/installers ship). Overridable for
+    # forks/testing.
+    RELEASE_API = os.environ.get(
+        "PRIORSTATES_RELEASES_API",
+        "https://api.github.com/repos/priorstates-dev/priorstates/releases/latest")
+
+    @staticmethod
+    def _version_tuple(s):
+        """'v0.1.21' / '0.1.21' → (0, 1, 21) for ordered comparison. Ignores any
+        non-numeric suffix; '' → (0,) so a missing version always sorts oldest."""
+        import re
+        nums = re.findall(r"\d+", s or "")
+        return tuple(int(n) for n in nums) or (0,)
+
+    def _installed_version(self):
+        from importlib.metadata import version as _ver
+        try:
+            return _ver("priorstates")
+        except Exception:
+            return None
+
+    def _latest_release_version(self):
+        """(version_str, html_url) of the newest published GitHub release, or
+        (None, None) on any network/parse error (offline, rate-limited, …)."""
+        import json
+        import urllib.request
+        try:
+            req = urllib.request.Request(
+                self.RELEASE_API,
+                headers={"User-Agent": "priorstates-gui",
+                         "Accept": "application/vnd.github+json"})
+            with urllib.request.urlopen(req, timeout=10) as r:
+                d = json.load(r)
+            tag = (d.get("tag_name") or "").lstrip("vV")
+            return (tag or None), d.get("html_url")
+        except Exception:
+            return None, None
 
     def _build_menubar(self):
         """A native menu bar — Help → About / Check for updates. (No menu existed
@@ -1651,31 +1689,73 @@ class PriorStatesGUI:
             messagebox.showinfo("About PriorStates", body)
 
     def update_software(self):
+        """Check whether a newer release exists before offering to update. If the
+        installed version is already the latest, just tell the user — don't run a
+        pointless reinstall. Both the footer "Update" button and Help → "Check for
+        updates…" call this."""
         from tkinter import messagebox
-        # If we're running from a system/.deb install, a pip --user upgrade would
-        # install a SECOND copy into ~/.local that *shadows* the .deb (user
-        # site-packages sort ahead on sys.path) — so every later .deb reinstall
-        # silently "does nothing". Steer .deb users to the .deb instead.
-        import priorstates as _pp
-        install_dir = os.path.dirname(os.path.dirname(os.path.abspath(_pp.__file__)))
-        in_venv = sys.prefix != sys.base_prefix          # pip --user is invalid inside a venv/pipx
-        if "dist-packages" in install_dir and not in_venv:
-            messagebox.showinfo("Update PriorStates",
-                                "This is a system package install (.deb).\n\n"
-                                "Download the latest .deb from priorstates.com/download and run:\n"
-                                "    sudo apt install ./priorstates-hub_<ver>_all.deb\n\n"
-                                "(Avoid 'pip install --user' here — it creates a second copy in "
-                                "~/.local that shadows this one, so future .deb updates look like "
-                                "they do nothing.)")
-            try:
-                webbrowser.open("https://priorstates.com/download")
-            except Exception:
-                pass
-            return
-        if not messagebox.askyesno("Update PriorStates",
-                                    "Reinstall the latest PriorStates from GitHub?\n\n"
-                                    "You'll need to restart the app afterward to use the new version."):
-            return
+        self.set_status("Checking for updates…")
+        cur = self._installed_version()
+
+        def check():
+            latest, url = self._latest_release_version()
+            return cur, latest, url
+
+        def decide(res):
+            cur, latest, url = res
+            # 1) Couldn't reach the update server — offer a manual reinstall.
+            if not latest:
+                self.set_status("couldn't check for updates (offline?)")
+                if messagebox.askyesno(
+                        "Check for updates",
+                        "Couldn't reach the update server to check the latest version "
+                        "(are you offline?).\n\n"
+                        "Reinstall the latest PriorStates from GitHub anyway?"):
+                    self._do_update_install()
+                return
+            # 2) Already current — inform the user, do nothing else.
+            if cur and self._version_tuple(cur) >= self._version_tuple(latest):
+                self.set_status(f"up to date (v{cur})")
+                messagebox.showinfo(
+                    "You're up to date",
+                    f"PriorStates v{cur} is the latest version.\n\nNo update is needed.")
+                return
+            # 3) A newer version exists.
+            self.set_status(f"update available: v{latest} (you have v{cur or '?'})")
+            # If we're running from a system/.deb install, a pip --user upgrade would
+            # install a SECOND copy into ~/.local that *shadows* the .deb (user
+            # site-packages sort ahead on sys.path) — so every later .deb reinstall
+            # silently "does nothing". Steer .deb users to the .deb instead.
+            import priorstates as _pp
+            install_dir = os.path.dirname(os.path.dirname(os.path.abspath(_pp.__file__)))
+            in_venv = sys.prefix != sys.base_prefix      # pip --user is invalid inside a venv/pipx
+            if "dist-packages" in install_dir and not in_venv:
+                messagebox.showinfo(
+                    "Update available",
+                    f"A new version (v{latest}) is available — you have v{cur or '?'}.\n\n"
+                    "This is a system package install (.deb). Download the latest .deb from "
+                    "priorstates.com/download and run:\n"
+                    "    sudo apt install ./priorstates-hub_<ver>_all.deb\n\n"
+                    "(Avoid 'pip install --user' here — it creates a second copy in ~/.local "
+                    "that shadows this one, so future .deb updates look like they do nothing.)")
+                try:
+                    webbrowser.open("https://priorstates.com/download")
+                except Exception:
+                    pass
+                return
+            if messagebox.askyesno(
+                    "Update available",
+                    f"A new version (v{latest}) is available — you have v{cur or '?'}.\n\n"
+                    "Update now? You'll need to restart the app afterward to use the new version."):
+                self._do_update_install()
+
+        self.run_bg(check, decide)
+
+    def _do_update_install(self):
+        """Reinstall the latest PriorStates from GitHub (pip-from-git). Assumes the
+        caller already confirmed an update is wanted."""
+        from tkinter import messagebox
+        in_venv = sys.prefix != sys.base_prefix
         cmd = [sys.executable, "-m", "pip", "install", "--no-cache-dir", "--upgrade", "--force-reinstall"]
         if not in_venv:
             cmd.append("--user")
