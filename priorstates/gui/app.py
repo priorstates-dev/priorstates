@@ -1323,7 +1323,32 @@ class PriorStatesGUI:
                          "packages (need Node.js). After installing, reopen PriorStates and\n"
                          "click 'Install (wire enabled agents)' so it sees the memory tools.")
             self._cli_install_btns[key] = b
+        fp = ttk.Button(row, text="Fix PATH", command=self.fix_agent_path)
+        fp.pack(side="left", padx=(12, 0))
+        self._tip(fp, "If `claude` (or codex/gemini) is installed but 'not found' in a\n"
+                      "terminal, this adds its install dir to your PATH. Open a new\n"
+                      "terminal afterward.")
         self._refresh_cli_install_btns()
+
+    def fix_agent_path(self):
+        """Persist the agent-CLI install dir(s) to PATH (delegates to
+        `priorstates fix-path`) so `claude` runs in any new terminal."""
+        from tkinter import messagebox
+        self.set_status("fixing agent PATH…")
+
+        def work():
+            return subprocess.run([sys.executable, "-m", "priorstates", "fix-path"],
+                                  capture_output=True, text=True, encoding="utf-8",
+                                  errors="replace", creationflags=_CNW)
+
+        def done(p):
+            out = ((p.stdout or "") + (("\n" + p.stderr) if p.stderr else "")).strip() or "no output"
+            self.set_status("agent PATH checked — open a new terminal for changes to apply")
+            try:
+                messagebox.showinfo("Fix agent PATH", out)
+            except Exception:
+                pass
+        self.run_bg(work, done)
 
     def _refresh_agents(self):
         from ..agents import status as ag_status

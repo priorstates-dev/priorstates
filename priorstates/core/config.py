@@ -187,16 +187,45 @@ def list_areas(home: Path) -> list[str]:
     return sorted(d.name for d in base.iterdir() if (d / "memory").is_dir())
 
 
+def agent_cli_dirs() -> list[Path]:
+    """Directories where the agent CLIs (claude / codex / gemini) commonly land
+    but which aren't reliably on PATH — chiefly on Windows, where the Claude Code
+    native installer uses ``~/.local/bin`` and npm-global shims go to
+    ``%APPDATA%/npm``. Returns only directories that exist, de-duplicated."""
+    dirs: list[Path] = [Path.home() / ".local" / "bin"]
+    if os.name == "nt":
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            dirs.append(Path(appdata) / "npm")           # npm -g shims: claude.cmd, codex.cmd…
+    else:
+        dirs.append(Path.home() / ".npm-global" / "bin")
+    seen, out = set(), []
+    for d in dirs:
+        s = str(d)
+        if s not in seen and d.is_dir():
+            seen.add(s)
+            out.append(d)
+    return out
+
+
+# Agent-CLI dirs that ensure_user_bin_on_path() had to inject because they were
+# NOT already on PATH — i.e. dirs the user's own terminals also can't see. `doctor`
+# uses this to warn (rather than shutil.which, which sees our injected PATH).
+injected_agent_dirs: list[str] = []
+
+
 def ensure_user_bin_on_path() -> None:
-    """Native agent-CLI installers (Claude Code, etc.) drop their binary in
-    ``~/.local/bin``, which is NOT on PATH by default on Windows. Prepend that
-    dir to THIS process's PATH so PriorStates -- and anything it launches --
-    can find those CLIs even before the user adds it to their persistent PATH."""
-    extra = str(Path.home() / ".local" / "bin")
-    if os.path.isdir(extra):
-        cur = os.environ.get("PATH", "")
-        if extra not in cur.split(os.pathsep):
-            os.environ["PATH"] = extra + os.pathsep + cur
+    """Prepend the agent-CLI dirs (see :func:`agent_cli_dirs`) to THIS process's
+    PATH so PriorStates -- and any agent terminal it launches -- can find claude /
+    codex / gemini even before the user adds them to their persistent PATH."""
+    parts = os.environ.get("PATH", "").split(os.pathsep)
+    for d in agent_cli_dirs():
+        ds = str(d)
+        if ds not in parts:
+            os.environ["PATH"] = ds + os.pathsep + os.environ.get("PATH", "")
+            parts.insert(0, ds)
+            if ds not in injected_agent_dirs:
+                injected_agent_dirs.append(ds)
 
 
 def ensure_editors_on_path() -> None:

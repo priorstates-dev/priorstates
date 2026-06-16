@@ -10,7 +10,7 @@ import sys
 from pathlib import Path
 
 from .core.config import (
-    DEFAULT_CONFIG_TOML, PROJECT_MARKER, ensure_editors_on_path,
+    DEFAULT_CONFIG_TOML, PROJECT_MARKER, agent_cli_dirs, ensure_editors_on_path,
     ensure_user_bin_on_path, home_dir, load_config,
 )
 
@@ -1016,6 +1016,81 @@ def cmd_ask(args):
                   + (f" [{j['outcome']}]" if j.get("outcome") else ""))
 
 
+_AGENT_BINS = ("claude", "codex", "gemini")
+# Executable forms an agent CLI can take on each OS (Windows uses shims).
+_AGENT_EXTS = ("", ".exe", ".cmd", ".bat", ".ps1")
+
+
+def _find_agent_cli_dirs() -> dict:
+    """{dir: {bins…}} for every agent-CLI install dir that actually holds a CLI."""
+    found: dict = {}
+    for d in agent_cli_dirs():
+        for b in _AGENT_BINS:
+            if any((d / f"{b}{e}").exists() for e in _AGENT_EXTS):
+                found.setdefault(str(d), set()).add(b)
+    return found
+
+
+def _persist_windows_user_path(dirs: list[str]) -> None:
+    """Append `dirs` to the persistent **User** PATH on Windows (no admin) via
+    PowerShell. Read-modify-write of the User scope only — never folds in the
+    machine PATH (the classic `setx %PATH%` footgun) and only adds what's missing."""
+    def _ps(script, env_extra=None):
+        return subprocess.run(
+            ["powershell", "-NoProfile", "-NonInteractive", "-Command", script],
+            capture_output=True, text=True, encoding="utf-8", errors="replace",
+            env={**os.environ, **(env_extra or {})}, creationflags=_CNW)
+    try:
+        cur = (_ps("[Environment]::GetEnvironmentVariable('Path','User')").stdout or "").strip()
+    except Exception as e:  # noqa: BLE001
+        print(f"could not read your user PATH ({e}); add the dir(s) above manually via "
+              "Settings → 'Edit environment variables for your account'.")
+        return
+    parts = [p for p in cur.split(os.pathsep) if p]
+    added = [d for d in dirs if d not in parts]
+    if not added:
+        print("\nAll already on your user PATH — open a NEW terminal and `claude` should work.")
+        return
+    newpath = os.pathsep.join(parts + added)
+    r = _ps("[Environment]::SetEnvironmentVariable('Path', $env:__PS_NEWPATH, 'User')",
+            {"__PS_NEWPATH": newpath})
+    if r.returncode == 0:
+        print("\nAdded to your user PATH:")
+        for d in added:
+            print(f"  + {d}")
+        print("\nOpen a NEW terminal (existing ones won't see it) and `claude` will work.")
+    else:
+        print("\ncouldn't update PATH automatically:", (r.stderr or "").strip()[:300])
+        print("add the dir(s) above manually via Settings → "
+              "'Edit environment variables for your account'.")
+
+
+def cmd_fix_path(args):
+    """Make `claude` / `codex` / `gemini` runnable from any terminal by adding
+    their install dir to your persistent PATH. The native installers don't always
+    do this on Windows, so a freshly-installed CLI isn't found until you add it."""
+    found = _find_agent_cli_dirs()
+    if not found:
+        print("No agent CLI (claude/codex/gemini) found in the usual install dirs:")
+        for d in agent_cli_dirs() or []:
+            print(f"  - {d}")
+        print("\nInstall one first (e.g. Claude Code), then re-run `priorstates fix-path`.")
+        print("Native Claude Code installs to ~/.local/bin; npm-global CLIs to "
+              + ("%APPDATA%\\npm." if os.name == "nt" else "your npm prefix."))
+        return
+    dirs = sorted(found)
+    print("Found agent CLIs in:")
+    for d in dirs:
+        print(f"  - {d}  ({', '.join(sorted(found[d]))})")
+    if os.name == "nt":
+        _persist_windows_user_path(dirs)
+    else:
+        shell = os.environ.get("SHELL", "")
+        rc = "~/.zshrc" if shell.endswith("zsh") else "~/.bashrc"
+        line = 'export PATH="' + ":".join(dirs) + ':$PATH"'
+        print(f"\nAdd this to {rc}, then open a new terminal:\n    {line}")
+
+
 def cmd_doctor(args):
     cfg = load_config()
     from .core import plugins as _plugins
@@ -1065,6 +1140,19 @@ def cmd_doctor(args):
         flag = "✓" if (s["mcp_registered"] and mcp_ok) else ("·" if s["installed"] else " ")
         print(f"agent {s['agent']:<7} installed={s['installed']} "
               f"registered={s['mcp_registered']} runnable={mcp_ok} [{flag}]")
+
+    # An agent CLI installed but not on the user's PATH can't be launched from a
+    # terminal (common on Windows: the installer drops it in ~/.local/bin or
+    # %APPDATA%\npm but doesn't persist PATH). We check the dirs ensure_user_bin
+    # had to INJECT — shutil.which would lie here, since it sees our injected PATH.
+    from .core.config import injected_agent_dirs
+    injected = set(injected_agent_dirs)
+    not_on_path = sorted({b for d, bins in _find_agent_cli_dirs().items()
+                          if d in injected for b in bins})
+    if not_on_path:
+        print(f"agent PATH:     ⚠ {', '.join(not_on_path)} installed but NOT on your PATH "
+              "(can't be launched from a terminal)")
+        print("                ↳ fix it: `priorstates fix-path`  (then open a new terminal)")
 
     # Verify the interpreter recorded in each agent's config can import `mcp`. The
     # server is spawned with THAT python, which may differ from this one (e.g. the
@@ -1628,6 +1716,7 @@ def build_parser():
     pask.add_argument("--json", action="store_true", help="emit raw JSON (used by the cockpit chat panel)")
     pask.set_defaults(func=cmd_ask)
     sub.add_parser("doctor", help="report config + backend + agent status").set_defaults(func=cmd_doctor)
+    sub.add_parser("fix-path", help="add the agent-CLI install dir to your persistent PATH (so `claude` works in any terminal)").set_defaults(func=cmd_fix_path)
     pdl = sub.add_parser("install-launcher", help="add a desktop/app-menu launcher for the GUI")
     pdl.add_argument("--desktop", action="store_true", help="also place an icon on your Desktop")
     pdl.add_argument("--uninstall", action="store_true", help="remove the launcher")
