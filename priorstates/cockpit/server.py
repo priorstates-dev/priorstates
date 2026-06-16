@@ -342,6 +342,23 @@ def _engine(*args, cwd=None, timeout=60000):
                           errors="replace", timeout=timeout / 1000.0, creationflags=_CNW)
 
 
+def _ai_configured() -> bool:
+    """Best-effort check for whether the local chat AI is set up (so the chat
+    panel can show a soft hint). Reads ~/.priorstates/ai.json directly — the
+    server may run standalone, so we avoid importing the package here."""
+    try:
+        with open(os.path.join(HOME, "ai.json"), encoding="utf-8") as f:
+            ai = json.load(f)
+    except Exception:
+        ai = {}
+    prov = ai.get("provider")
+    if prov in ("ollama", "claude_cli"):
+        return True
+    if prov in ("anthropic", "openai", "deepseek"):
+        return bool(ai.get("api_key"))
+    return False
+
+
 class Handler(BaseHTTPRequestHandler):
     protocol_version = "HTTP/1.1"
     server_version = "PriorStatesCockpit/1.0"
@@ -450,6 +467,27 @@ class Handler(BaseHTTPRequestHandler):
         if r.returncode != 0:
             return self._err(500, (r.stderr or "capture failed")[:2000])
         self._json({"ok": True, "result": (r.stdout or "").strip()})
+
+    def _api_chat(self, body):
+        """Answer a question from this machine's memory + journal via the local
+        AI (the `priorstates ask` path = the memory_answer tool). Read-only — no
+        --allow-write needed; it never modifies anything."""
+        q = (body.get("query") or "").strip()
+        if not q:
+            return self._err(400, "empty question")
+        scope = body.get("scope") or "all"
+        try:
+            # `--` guards questions that begin with '-' from argparse.
+            r = _engine("ask", "--json", "--scope", scope, "--", q, timeout=120000)
+        except subprocess.TimeoutExpired:
+            return self._err(504, "the AI took too long to answer")
+        if r.returncode != 0:
+            return self._err(500, (r.stderr or "ask failed")[:2000])
+        try:
+            data = json.loads(r.stdout or "{}")
+        except Exception:
+            return self._err(500, "could not parse the answer")
+        self._json(data)
 
     def _api_mem_op(self, op, name, unpin=False):
         if not ALLOW_WRITE:
@@ -666,6 +704,8 @@ class Handler(BaseHTTPRequestHandler):
         u = urlparse(self.path)
         p, q = u.path, parse_qs(u.query)
         try:
+            if p == "/api/chat":
+                return self._api_chat(self._read_body())
             if p == "/api/memory/capture":
                 return self._api_capture("memory", self._read_body().get("text"))
             if p == "/api/journal/capture":
@@ -704,6 +744,7 @@ class Handler(BaseHTTPRequestHandler):
                 return self._json({"home": HOME, "project_root": PROJECT_ROOT,
                                    "has_journal": bool(JOURNAL_DIR), "allow_open": ALLOW_OPEN,
                                    "allow_write": ALLOW_WRITE, "allow_terminal": ALLOW_TERMINAL,
+                                   "ai_configured": _ai_configured(),
                                    "editors": EDITORS, "ssh_host": SSH_HOST,
                                    "opener_port": OPENER_PORT})
             if p == "/api/journal":

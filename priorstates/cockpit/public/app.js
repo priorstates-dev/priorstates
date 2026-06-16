@@ -259,6 +259,9 @@ function render() {
   } else if (state.view === 'term') {
     $('#viewctl').append(el('span', { class: 'lbl' }, 'a shell on this machine — run claude / codex / gemini here'));
     renderTerminal();
+  } else if (state.view === 'chat') {
+    $('#viewctl').append(el('span', { class: 'lbl' }, 'ask a question — answered from your memory + journal by your local AI'));
+    renderChat();
   } else {
     $('#viewctl').append(el('span', { class: 'lbl' }, '📌 pinned shown first'));
     renderMemoryList(q);
@@ -304,6 +307,79 @@ function renderTerminal() {
     window.addEventListener('resize', function () { if (state.view === 'term' && FIT) { try { FIT.fit(); } catch (_) {} } });
   }
 }
+// ── Chat: ask a question, answered from memory + journal by the local AI ──
+function renderChat() {
+  $('#tree').innerHTML = '';
+  const c = $('#content'); c.innerHTML = '';
+  const wrap = el('div', { class: 'chat' });
+  const log = el('div', { class: 'chat-log' });
+  if (!state._chat) state._chat = [];               // [{role, text, sources?}]
+  wrap.append(log);
+
+  // composer
+  const form = el('form', { class: 'chat-form' });
+  const inp = el('input', { class: 'chat-input', type: 'text', autocomplete: 'off',
+    placeholder: 'Ask about your memory & journal…' });
+  const send = el('button', { class: 'wsbtn', type: 'submit' }, 'Ask');
+  form.append(inp, send);
+  wrap.append(form);
+  c.append(wrap);
+
+  const m = state.meta || {};
+
+  function paint() {
+    log.innerHTML = '';
+    if (!m.ai_configured && !state._chat.length) {
+      log.append(el('div', { class: 'chat-hint' },
+        'No chat AI is configured yet — open the PriorStates desktop app → AI tab to set one '
+        + '(the answer is generated on this machine; your API key never leaves it). '
+        + 'You can still ask — you’ll get the matching memory & journal sources below.'));
+    }
+    for (const turn of state._chat) {
+      const row = el('div', { class: 'chat-turn ' + turn.role });
+      row.append(el('div', { class: 'chat-bubble', html: esc(turn.text).replace(/\n/g, '<br>') }));
+      if (turn.sources && turn.sources.length) {
+        const src = el('div', { class: 'chat-src' }, ['sources: ']);
+        turn.sources.forEach((s, i) => {
+          src.append(el('a', { href: '#', onclick: (e) => { e.preventDefault();
+            if (s.kind === 'memory') go({ type: 'memory', name: s.name }); } },
+            (i ? ', ' : '') + s.label));
+        });
+        row.append(src);
+      }
+      log.append(row);
+    }
+    log.scrollTop = log.scrollHeight;
+  }
+  paint();
+
+  form.onsubmit = async (e) => {
+    e.preventDefault();
+    const q = inp.value.trim();
+    if (!q) return;
+    state._chat.push({ role: 'you', text: q });
+    inp.value = ''; send.disabled = true;
+    const thinking = { role: 'ai', text: '…' };
+    state._chat.push(thinking); paint();
+    let r;
+    try { r = await post('/api/chat', { query: q }); }
+    catch (err) { r = { error: String(err) }; }
+    const sources = []
+      .concat((r.memories || []).map((mm) => ({ kind: 'memory', name: mm.name, label: mm.name })))
+      .concat((r.journal || []).map((jj) => ({ kind: 'journal', label: jj.title || jj.id })));
+    thinking.text = r.error ? ('Error: ' + r.error)
+      : (r.answer || r.answer_error || 'No answer was produced.');
+    thinking.sources = sources;
+    send.disabled = false; paint(); inp.focus();
+  };
+  inp.focus();
+}
+
+function esc(s) {
+  return String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+}
+
 function renderDocs(q) {
   const tree = $('#tree'); tree.innerHTML = '';
   const groups = state.docs.groups || {};

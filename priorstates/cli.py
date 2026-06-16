@@ -983,6 +983,39 @@ def cmd_mcp(args):
     mcp_main()
 
 
+def cmd_ask(args):
+    """Ask a question; the answer is synthesized from this machine's memory +
+    journal by the locally-configured AI (same path as the `memory_answer` MCP
+    tool). `--json` emits the raw result (used by the cockpit chat panel)."""
+    cfg = load_config()
+    from .mcp import tools as _tools
+    res = _tools.call(cfg, "memory_answer", {
+        "query": args.query, "scope": args.scope,
+        "k": args.k, "k_journal": args.k_journal,
+    })
+    if args.json:
+        _print(res)
+        return
+    ans = res.get("answer")
+    if ans:
+        print(ans)
+    else:
+        print(res.get("answer_error")
+              or "No answer (the AI returned nothing).")
+    mems = res.get("memories") or []
+    if mems:
+        print("\nsources — memory:")
+        for m in mems:
+            print(f"  • {m.get('name', '?')}"
+                  + (f" — {m['description']}" if m.get("description") else ""))
+    jr = res.get("journal") or []
+    if jr:
+        print("\nsources — journal:")
+        for j in jr:
+            print(f"  • {j.get('title') or j.get('id', '?')}"
+                  + (f" [{j['outcome']}]" if j.get("outcome") else ""))
+
+
 def cmd_doctor(args):
     cfg = load_config()
     from .core import plugins as _plugins
@@ -1587,6 +1620,13 @@ def build_parser():
     pg.add_argument("--project", help="workspace (project folder) to open")
     pg.set_defaults(func=cmd_gui)
     sub.add_parser("mcp", help="run the MCP server (used by agents)").set_defaults(func=cmd_mcp)
+    pask = sub.add_parser("ask", help="ask a question; the local AI answers from your memory + journal")
+    pask.add_argument("query")
+    pask.add_argument("--scope", default="all", help="all | global | project")
+    pask.add_argument("-k", type=int, default=8, help="memory hits used to ground the answer")
+    pask.add_argument("--k-journal", type=int, default=4, dest="k_journal", help="journal hits to include")
+    pask.add_argument("--json", action="store_true", help="emit raw JSON (used by the cockpit chat panel)")
+    pask.set_defaults(func=cmd_ask)
     sub.add_parser("doctor", help="report config + backend + agent status").set_defaults(func=cmd_doctor)
     pdl = sub.add_parser("install-launcher", help="add a desktop/app-menu launcher for the GUI")
     pdl.add_argument("--desktop", action="store_true", help="also place an icon on your Desktop")

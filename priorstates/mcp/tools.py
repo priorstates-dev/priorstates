@@ -52,7 +52,7 @@ def call(cfg, name: str, args: dict | None):
         out = {"memories": mems, "journal": jr}
         if not _ai.configured(cfg):
             out["answer_error"] = ("No AI is configured on this machine — open the PriorStates "
-                                   "desktop app → Connections → AI to set one.")
+                                   "desktop app → AI tab to set one.")
             return out
         try:
             out["answer"] = _ai.answer(cfg, q, _ai.build_context(mems, jr))
