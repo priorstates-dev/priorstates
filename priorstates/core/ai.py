@@ -25,6 +25,7 @@ from __future__ import annotations
 import json
 import os
 import subprocess
+_CNW = getattr(subprocess, "CREATE_NO_WINDOW", 0)  # suppress console-window flashes on Windows
 import time
 import urllib.request
 from pathlib import Path
@@ -173,8 +174,12 @@ def answer(cfg, question: str, context: str, ai: dict | None = None) -> str:
 
     if prov == "claude_cli":
         cmd = (ai.get("command") or "claude").split()
+        # creationflags=CREATE_NO_WINDOW: the CLI is a console program; without
+        # this, each call pops a console window on Windows (the parent here has
+        # no console of its own to inherit). No-op off Windows.
         out = subprocess.run(cmd + ["-p", _SYSTEM + "\n\n" + prompt],
-                             capture_output=True, text=True, timeout=120)
+                             capture_output=True, text=True, timeout=120,
+                             creationflags=_CNW)
         if out.returncode != 0:
             raise RuntimeError((out.stderr or "claude CLI failed").strip()[:300])
         return out.stdout.strip()
